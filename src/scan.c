@@ -11,7 +11,8 @@ static long pathmax = PATH_MAX;
 static long pathmax = 1024;
 #endif
 
-int print_file(const char *file) {
+static int print_file(const char *file, void *context) {
+  (void)context;
   printf("[%s]\n", file);
   return 0;
 }
@@ -27,5 +28,5 @@ int scan(const char *directory) {
     return -1;
   }
 
-  return walk(dir, print_file);
+  return walk(dir, print_file, NULL);
 }

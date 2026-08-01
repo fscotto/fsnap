@@ -9,7 +9,7 @@
 
 static char *blacklist[] = {".", ".."};
 
-char *strconcat(const char *src, int n, ...) {
+static char *strconcat(const char *src, int n, ...) {
   va_list ap;
 
   /* First pass: total length. strcat never reallocates, so the buffer has to
@@ -40,7 +40,7 @@ char *strconcat(const char *src, int n, ...) {
   return path;
 }
 
-int ignore_file(const char *name) {
+static int ignore_file(const char *name) {
   for (long unsigned int i = 0; i < sizeof(blacklist) / sizeof(char *); i++) {
     if (strcmp(name, blacklist[i]) == 0)
       return 1;
@@ -48,7 +48,7 @@ int ignore_file(const char *name) {
   return 0;
 }
 
-static int handle_unknown(const char *path, operation op) {
+static int handle_unknown(const char *path, operation op, void *context) {
   struct stat st;
 
   if (lstat(path, &st) == -1) {
@@ -56,14 +56,14 @@ static int handle_unknown(const char *path, operation op) {
   }
 
   if (S_ISDIR(st.st_mode)) {
-    return walk(path, op);
+    return walk(path, op, context);
   }
 
-  op(path);
+  op(path, context);
   return 0;
 }
 
-int walk(const char *directory, operation op) {
+int walk(const char *directory, operation op, void *context) {
   DIR *dirp = opendir(directory);
   if (dirp == NULL) {
     return -1;
@@ -85,17 +85,17 @@ int walk(const char *directory, operation op) {
     case DT_UNKNOWN:
       // operating system or filesystem do not support dirent->d_type.
       // In this case use alternative algorithm for walk directories.
-      if (handle_unknown(path, op) == -1) {
+      if (handle_unknown(path, op, context) == -1) {
         return -1;
       }
       break;
     case DT_DIR:
-      if (walk(path, op) == -1) {
+      if (walk(path, op, context) == -1) {
         return -1;
       }
       break;
     default:
-      op(path);
+      op(path, context);
       break;
     }
 
