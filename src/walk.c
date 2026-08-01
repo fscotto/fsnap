@@ -1,48 +1,18 @@
 #define _DEFAULT_SOURCE
+#define _GNU_SOURCE
 #include "walk.h"
+#include "utility.h"
 #include <dirent.h>
 #include <errno.h>
-#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 
 static char *blacklist[] = {".", ".."};
 
-static char *strconcat(const char *src, int n, ...) {
-  va_list ap;
-
-  /* First pass: total length. strcat never reallocates, so the buffer has to
-     be sized up front. */
-  size_t len = strlen(src);
-  va_start(ap, n);
-  for (int i = 0; i < n; i++) {
-    len += strlen(va_arg(ap, char *));
-  }
-  va_end(ap);
-
-  char *path = malloc(len + 1);
-  if (path == NULL)
-    return NULL;
-
-  size_t off = strlen(src);
-  memcpy(path, src, off);
-  va_start(ap, n);
-  for (int i = 0; i < n; i++) {
-    const char *s = va_arg(ap, char *);
-    size_t l = strlen(s);
-    memcpy(path + off, s, l);
-    off += l;
-  }
-  va_end(ap);
-  path[off] = '\0';
-
-  return path;
-}
-
 static int ignore_file(const char *name) {
   for (long unsigned int i = 0; i < sizeof(blacklist) / sizeof(char *); i++) {
-    if (strcmp(name, blacklist[i]) == 0)
+    if (strcmp(name, blacklist[i]) == 0 || strcasestr(name, ".fsnap"))
       return 1;
   }
   return 0;

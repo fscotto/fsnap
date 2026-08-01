@@ -1,12 +1,13 @@
 #include "scan.h"
+#include "create.h"
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
 
 int main(int argc, char *argv[]) {
   if (argc < 2) {
-    fprintf(stderr, "command not found [scan]\n");
+    fprintf(stderr, "%s: command not found [scan|create]\n", argv[0]);
     return EXIT_FAILURE;
   }
 
@@ -19,6 +20,18 @@ int main(int argc, char *argv[]) {
       const int err = errno;
       fprintf(stderr, "scan failed: %s\n", strerror(err));
       return EXIT_FAILURE;
+    }
+  } else if (strcmp(cmd, "create") == 0) {
+    if (argc < 4) {
+	fprintf(stderr, "%s: command %s expected params [directory output_file]\n", argv[0], cmd);
+	return EXIT_FAILURE;
+    }
+    const char *directory = argv[2];
+    const char *output_file = argv[3];
+    if (create(directory, output_file) == -1) {
+	const int err = errno;
+	fprintf(stderr, "create failed: %s\n", strerror(err));
+	return EXIT_FAILURE;
     }
   } else {
     fprintf(stderr, "command %s is not valid\n", cmd);

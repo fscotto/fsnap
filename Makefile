@@ -10,8 +10,10 @@ TARGET := $(BUILD_DIR)/fsnap
 
 SOURCES := \
 	src/main.c \
+	src/utility.c \
 	src/walk.c \
-	src/scan.c
+	src/scan.c \
+	src/create.c
 
 OBJECTS := $(SOURCES:%.c=$(BUILD_DIR)/%.o)
 DEPENDENCIES := $(OBJECTS:.o=.d)
