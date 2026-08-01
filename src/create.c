@@ -3,6 +3,7 @@
 #include "create.h"
 #include "utility.h"
 #include "walk.h"
+#include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
 #include <stdio.h>
@@ -10,7 +11,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <errno.h>
+#include <strings.h>
 
 static char file_type(mode_t mode) {
   if (S_ISREG(mode))
@@ -53,10 +54,10 @@ static int write_record(const char *path, void *context) {
   intmax_t time = (intmax_t)st.st_mtime;
 
   // Write record in the stream file
-  fprintf(snapshot, "%c|%04o|%ju|%ju|%jd|%jd|%s\n", type, perm, uid, gid, size,
-          time, path);
-
-  return 0;
+  return fprintf(snapshot, "%c|%04o|%ju|%ju|%jd|%jd|%s\n", type, perm, uid, gid,
+                 size, time, path) < 0
+             ? -1
+             : 0;
 }
 
 int create(const char *directory, const char *output_file) {
@@ -84,6 +85,7 @@ int create(const char *directory, const char *output_file) {
 
   FILE *tmp = fdopen(fd, "w+");
   if (tmp == NULL) {
+    close(fd);
     rc = -1;
     goto out;
   }

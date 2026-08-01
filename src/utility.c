@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 char *strconcat(const char *src, int n, ...) {
   va_list ap;
@@ -74,10 +73,11 @@ int copy(const char *src, const char *dst) {
     return -1;
   }
 
+  int rc = 0;
   if (fclose(file1) != 0)
-    return -1;
+    rc = -1;
   if (fclose(file2) != 0)
-    return -1;
+    rc = -1;
 
-  return 0;
+  return rc;
 }

@@ -3,6 +3,7 @@
 #include "walk.h"
 #include <dirent.h>
 #include <errno.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -36,8 +37,13 @@ static int handle_unknown(const char *path, operation op, void *context) {
 }
 
 int walk(const char *directory, operation op, void *context) {
+  errno = 0;
   DIR *dirp = opendir(directory);
   if (dirp == NULL) {
+    if (errno == EACCES) {
+      fprintf(stderr, "access denied: %s\n", directory);
+      return 0;
+    }
     return -1;
   }
 
