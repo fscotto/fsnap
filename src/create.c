@@ -1,12 +1,16 @@
-#define _XOPEN_SOURCE 500
+#define _DEFAULT_SOURCE
+#define _XOPEN_SOURCE 700
 #include "create.h"
 #include "utility.h"
 #include "walk.h"
 #include <fcntl.h>
 #include <inttypes.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
+#include <errno.h>
 
 static char file_type(mode_t mode) {
   if (S_ISREG(mode))
@@ -28,8 +32,14 @@ static char file_type(mode_t mode) {
 }
 
 static int write_record(const char *path, void *context) {
-  FILE *snapshot = (FILE *)context;
+  // skip snapshot files
+  const char *base = strrchr(path, '/');
+  base = base ? base + 1 : path;
+  size_t n = strlen(base);
+  if (n >= 6 && strcasecmp(base + n - 6, ".fsnap") == 0)
+    return 0;
 
+  FILE *snapshot = (FILE *)context;
   struct stat st;
   if (lstat(path, &st) == -1) {
     return -1;
@@ -51,27 +61,53 @@ static int write_record(const char *path, void *context) {
 
 int create(const char *directory, const char *output_file) {
   if (directory == NULL || strlen(directory) == 0) {
+    errno = EINVAL;
     return -1;
   }
   if (output_file == NULL || strlen(output_file) == 0) {
+    errno = EINVAL;
     return -1;
   }
 
-  const char *resolved = resolve_path(directory);
+  char *resolved = resolve_path(directory);
   if (resolved == NULL) {
     return -1;
   }
-  FILE *f = fopen(output_file, "w+");
-  if (f == NULL) {
+
+  int rc = 0;
+  char template[] = "/tmp/snapshot_XXXXXX";
+  int fd = mkstemp(template);
+  if (fd == -1) {
+    free(resolved);
     return -1;
   }
 
-  if (walk(resolved, write_record, (void *)f) == -1) {
-    return -1;
+  FILE *tmp = fdopen(fd, "w+");
+  if (tmp == NULL) {
+    rc = -1;
+    goto out;
   }
 
-  if (fclose(f) != 0) {
-    return -1;
+  if (walk(resolved, write_record, (void *)tmp) == -1) {
+    rc = -1;
+    goto out;
   }
-  return 0;
+
+  if (fflush(tmp) == EOF) {
+    rc = -1;
+    goto out;
+  }
+
+  if (copy(template, output_file) == -1) {
+    rc = -1;
+    goto out;
+  }
+
+out:
+  free(resolved);
+  unlink(template);
+  if (tmp != NULL && fclose(tmp) != 0) {
+    rc = -1;
+  }
+  return rc;
 }
