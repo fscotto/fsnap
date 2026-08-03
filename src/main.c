@@ -1,5 +1,4 @@
-#include "create.h"
-#include "scan.h"
+#include "command.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,6 +37,18 @@ int main(int argc, char *argv[]) {
     if (create(directory, output_file) == -1) {
       const int err = errno;
       fprintf(stderr, "create failed: %s\n", strerror(err));
+      return EXIT_FAILURE;
+    }
+  } else if (strcmp(cmd, "list") == 0) {
+    if (argc < 3) {
+      fprintf(stderr, "%s: command %s expected param [snapshot_file]", argv[0],
+              cmd);
+      return EXIT_FAILURE;
+    }
+    const char *snapshot = argv[2];
+    if (list(snapshot) == -1) {
+      const int err = errno;
+      fprintf(stderr, "list failed: %s\n", strerror(err));
       return EXIT_FAILURE;
     }
   } else {
