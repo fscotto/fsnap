@@ -13,7 +13,8 @@ SOURCES := \
 	src/utility.c \
 	src/walk.c \
 	src/scan.c \
-	src/create.c
+	src/create.c \
+	src/list.c
 
 OBJECTS := $(SOURCES:%.c=$(BUILD_DIR)/%.o)
 DEPENDENCIES := $(OBJECTS:.o=.d)
