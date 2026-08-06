@@ -13,14 +13,111 @@
 #define LINEMAX 2048
 #endif
 
-#define PRINT(objp)                                                            \
-  printf("%c|%04o|%ju|%ju|%jd|%jd|%s", objp->file_type, objp->perm, objp->uid, \
-         objp->gid, objp->size, objp->time, objp->path)
+#define NFIELDS 7
 
-#define FIRST(s) s[0]
+enum Fields {
+  FILE_TYPE,
+  PERMISSIONS,
+  UID,
+  GID,
+  SIZE,
+  TIME,
+  PATH,
+  NONE,
+};
 
-static int validate_record(struct RecordObject *obj) {
-  // TODO implements this function
+static const char *field_names[] = {"file type", "permissions", "uid",  "gid",
+                                    "size",      "time",        "path", "none"};
+
+static enum Fields field = NONE;
+
+static const char *field_name(enum Fields f) {
+  return (f <= NONE) ? field_names[f] : "unknown";
+}
+
+static int split_record(char *line, char *fields[NFIELDS], char delim) {
+  char *p = line;
+
+  line[strcspn(line, "\n")] = '\0';
+
+  for (size_t n = 0; n < NFIELDS - 1; n++) {
+    fields[n] = p;
+
+    char *sep = strchr(p, delim);
+    if (sep == NULL)
+      return -1;
+
+    *sep = '\0';
+    p = sep + 1;
+  }
+
+  fields[NFIELDS - 1] = p;
+
+  if (strchr(fields[NFIELDS - 1], delim) != NULL)
+    return -1;
+
+  return 0;
+}
+
+static int parse_file_type(const char *s, char *out) {
+  if (s == NULL || s[0] == '\0' || s[1] != '\0')
+    return -1;
+
+  char c = s[0];
+  switch (c) {
+  case 'F':
+  case 'D':
+  case 'L':
+  case 'P':
+  case 'C':
+  case 'B':
+  case 'S':
+    *out = c;
+    return 0;
+  default:
+    return -1;
+  }
+}
+
+static int parse_perm(const char *s, unsigned int *out) {
+  char *end = NULL;
+
+  if (s == NULL || strlen(s) != 4)
+    return -1;
+
+  unsigned long v = strtoul(s, &end, 8);
+  if (*s == '\0' || *end != '\0' || v > 07777)
+    return -1;
+
+  *out = (unsigned int)v;
+  return 0;
+}
+
+static int parse_uintmax(const char *s, uintmax_t *out) {
+  char *end = NULL;
+
+  if (s == NULL || *s == '\0')
+    return -1;
+
+  uintmax_t v = strtoumax(s, &end, 10);
+  if (*end != '\0')
+    return -1;
+
+  *out = v;
+  return 0;
+}
+
+static int parse_intmax_nonnegative(const char *s, intmax_t *out) {
+  char *end = NULL;
+
+  if (s == NULL || *s == '\0')
+    return -1;
+
+  intmax_t v = strtoimax(s, &end, 10);
+  if (*end != '\0' || v < 0)
+    return -1;
+
+  *out = v;
   return 0;
 }
 
@@ -35,34 +132,59 @@ struct RecordObject {
 };
 
 struct RecordObject *unpack(char *s) {
-  const char *sep = "|";
+  char *fields[NFIELDS];
+  if (split_record(s, fields, '|') == -1)
+    return NULL;
 
-  struct RecordObject *obj = malloc(sizeof(struct RecordObject));
-  if (obj == NULL) {
+  struct RecordObject *objp = calloc(1, sizeof(*objp));
+  if (objp == NULL) {
     return NULL;
   }
 
-  obj->file_type = FIRST(strtok(s, sep));
-  obj->perm = (unsigned int)strtoul(strtok(NULL, sep), NULL, 10);
-  obj->uid = strtoumax(strtok(NULL, sep), NULL, 10);
-  obj->gid = strtoumax(strtok(NULL, sep), NULL, 10);
-  obj->size = strtoimax(strtok(NULL, sep), NULL, 10);
-  obj->time = strtoimax(strtok(NULL, sep), NULL, 10);
+  field = NONE;
 
-  const char *p = strtok(NULL, sep);
-  char *path = calloc(strlen(p), sizeof(char));
-  strcpy(path, p);
-
-  obj->path = path;
-
-  if (strtok(NULL, sep) != NULL)
-    return NULL;
-
-  if (validate_record(obj) == -1) {
-    return NULL;
+  if (parse_file_type(fields[0], &objp->file_type) == -1) {
+    field = FILE_TYPE;
+    return objp;
   }
 
-  return obj;
+  if (parse_perm(fields[1], &objp->perm) == -1) {
+    field = PERMISSIONS;
+    return objp;
+  }
+
+  if (parse_uintmax(fields[2], &objp->uid) == -1) {
+    field = UID;
+    return objp;
+  }
+
+  if (parse_uintmax(fields[3], &objp->gid) == -1) {
+    field = GID;
+    return objp;
+  }
+
+  if (parse_intmax_nonnegative(fields[4], &objp->size) == -1) {
+    field = SIZE;
+    return objp;
+  }
+
+  if (parse_intmax_nonnegative(fields[5], &objp->time) == -1) {
+    field = TIME;
+    return objp;
+  }
+
+  if (fields[6][0] == '\0') {
+    field = PATH;
+    return objp;
+  }
+
+  char *path = calloc(strlen(fields[6]) + 1, sizeof(char));
+  if (path == NULL)
+    return NULL;
+
+  objp->path = strcpy(path, fields[6]);
+
+  return objp;
 }
 
 int release(struct RecordObject *obj) {
@@ -73,6 +195,8 @@ int release(struct RecordObject *obj) {
     free(obj->path);
     obj->path = NULL;
   }
+
+  free(obj);
   return 0;
 }
 
@@ -111,16 +235,23 @@ int list(const char *snapshot) {
 
   int i = 0;
   char buf[LINEMAX];
-  struct RecordObject **records = calloc(arr_size, sizeof(struct RecordObject));
+  struct RecordObject **records = calloc(arr_size, sizeof(*records));
   while (fgets(buf, sizeof(buf), snapshot_file) != NULL) {
     struct RecordObject *objp = unpack(buf);
     if (objp == NULL) {
-      fprintf(stderr, "[ERROR] unparsable line %d", i);
-      errno = EINVAL;
+      fprintf(stderr, "%s:%d: unparsable line\n", snapshot, i + 1);
+      rc = 128;
+      break;
+    }
+
+    if (field != NONE) {
+      fprintf(stderr, "%s:%d: invalid %s\n", snapshot, i + 1,
+              field_name(field));
+      rc = 128;
+      release(objp);
       break;
     }
     records[i] = objp;
-    PRINT(objp);
     i++;
   }
 

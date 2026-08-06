@@ -46,9 +46,12 @@ int main(int argc, char *argv[]) {
       return EXIT_FAILURE;
     }
     const char *snapshot = argv[2];
-    if (list(snapshot) == -1) {
+    int ret = list(snapshot);
+    if (ret == -1) {
       const int err = errno;
       fprintf(stderr, "list failed: %s\n", strerror(err));
+      return EXIT_FAILURE;
+    } else if (ret > 0) {
       return EXIT_FAILURE;
     }
   } else {
