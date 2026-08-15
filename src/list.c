@@ -1,17 +1,10 @@
+#define _GNU_SOURCE
 #include "list.h"
 #include <errno.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
-#include <sys/stat.h>
-
-#ifdef LINE_MAX
-#define LINEMAX LINE_MAX
-#else
-#define LINEMAX 2048
-#endif
 
 #define NFIELDS 7
 
@@ -72,6 +65,7 @@ static int parse_file_type(const char *s, char *out) {
   case 'C':
   case 'B':
   case 'S':
+  case '?':
     *out = c;
     return 0;
   default:
@@ -79,14 +73,31 @@ static int parse_file_type(const char *s, char *out) {
   }
 }
 
+/* strtol and friends accept leading whitespace, a sign, and wrap negative
+   input around for the unsigned variants. Reject anything that is not a bare
+   run of decimal digits before converting. */
+static int only_digits(const char *s, int base) {
+  const char last = (base == 8) ? '7' : '9';
+
+  if (s == NULL || *s == '\0')
+    return 0;
+
+  for (const char *p = s; *p != '\0'; p++) {
+    if (*p < '0' || *p > last)
+      return 0;
+  }
+  return 1;
+}
+
 static int parse_perm(const char *s, unsigned int *out) {
   char *end = NULL;
 
-  if (s == NULL || strlen(s) != 4)
+  if (s == NULL || strlen(s) != 4 || !only_digits(s, 8))
     return -1;
 
+  errno = 0;
   unsigned long v = strtoul(s, &end, 8);
-  if (*s == '\0' || *end != '\0' || v > 07777)
+  if (*end != '\0' || errno == ERANGE || v > 07777)
     return -1;
 
   *out = (unsigned int)v;
@@ -96,11 +107,12 @@ static int parse_perm(const char *s, unsigned int *out) {
 static int parse_uintmax(const char *s, uintmax_t *out) {
   char *end = NULL;
 
-  if (s == NULL || *s == '\0')
+  if (!only_digits(s, 10))
     return -1;
 
+  errno = 0;
   uintmax_t v = strtoumax(s, &end, 10);
-  if (*end != '\0')
+  if (*end != '\0' || errno == ERANGE)
     return -1;
 
   *out = v;
@@ -110,11 +122,12 @@ static int parse_uintmax(const char *s, uintmax_t *out) {
 static int parse_intmax_nonnegative(const char *s, intmax_t *out) {
   char *end = NULL;
 
-  if (s == NULL || *s == '\0')
+  if (!only_digits(s, 10))
     return -1;
 
+  errno = 0;
   intmax_t v = strtoimax(s, &end, 10);
-  if (*end != '\0' || v < 0)
+  if (*end != '\0' || errno == ERANGE || v < 0)
     return -1;
 
   *out = v;
@@ -179,8 +192,10 @@ struct RecordObject *unpack(char *s) {
   }
 
   char *path = calloc(strlen(fields[6]) + 1, sizeof(char));
-  if (path == NULL)
+  if (path == NULL) {
+    release(objp);
     return NULL;
+  }
 
   objp->path = strcpy(path, fields[6]);
 
@@ -200,23 +215,31 @@ int release(struct RecordObject *obj) {
   return 0;
 }
 
-static size_t count_lines(const char *file) {
+static int count_lines(const char *file) {
   FILE *f = fopen(file, "r");
   if (f == NULL) {
-    return 0;
+    return -1;
   }
 
-  size_t count = 0;
-  char buf[LINEMAX];
-  while (fgets(buf, sizeof(buf), f) != NULL)
+  size_t size = 0;
+  int count = 0;
+  char *buf = NULL;
+  while (getline(&buf, &size, f) != -1)
     count++;
 
   if (ferror(f)) {
+    /* Capture before the cleanup: free and fclose may both touch errno. */
+    const int saved_errno = errno;
+    free(buf);
     fclose(f);
-    return 0;
+    errno = saved_errno;
+    return -1;
   }
 
-  fclose(f);
+  free(buf);
+  if (fclose(f) != 0) {
+    return -1;
+  }
   return count;
 }
 
@@ -227,16 +250,24 @@ int list(const char *snapshot) {
   }
 
   int rc = 0;
-  const size_t arr_size = count_lines(snapshot);
+  struct RecordObject **records = NULL;
+  char *buf = NULL;
+  const int arr_size = count_lines(snapshot);
   if (arr_size == 0) {
+    goto out;
+  } else if (arr_size < 0) {
     rc = -1;
     goto out;
   }
 
   int i = 0;
-  char buf[LINEMAX];
-  struct RecordObject **records = calloc(arr_size, sizeof(*records));
-  while (fgets(buf, sizeof(buf), snapshot_file) != NULL) {
+  size_t size = 0;
+  records = calloc((size_t)arr_size, sizeof(*records));
+  if (records == NULL) {
+    rc = -1;
+    goto out;
+  }
+  while (getline(&buf, &size, snapshot_file) != -1 && i < arr_size) {
     struct RecordObject *objp = unpack(buf);
     if (objp == NULL) {
       fprintf(stderr, "%s:%d: unparsable line\n", snapshot, i + 1);
@@ -260,17 +291,30 @@ int list(const char *snapshot) {
     goto out;
   }
 
-out:
-  if (snapshot_file != NULL && fclose(snapshot_file) != 0) {
-    rc = -1;
-  }
+out:;
+  /* An error that happened before the cleanup owns errno; one raised by the
+     cleanup itself owns it only when nothing had failed yet. */
+  const int saved_errno = errno;
+  int cleanup_errno = 0;
+
+  if (snapshot_file != NULL && fclose(snapshot_file) != 0)
+    cleanup_errno = errno;
+
+  free(buf);
   if (records != NULL) {
-    for (size_t i = 0; i < arr_size; i++) {
-      release(records[i]);
-      records[i] = NULL;
+    for (int j = 0; j < arr_size; j++) {
+      release(records[j]);
+      records[j] = NULL;
     }
     free(records);
     records = NULL;
   }
+
+  if (rc == 0 && cleanup_errno != 0) {
+    errno = cleanup_errno;
+    return -1;
+  }
+  if (rc == -1)
+    errno = saved_errno;
   return rc;
 }

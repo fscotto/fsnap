@@ -6,7 +6,7 @@
 
 int main(int argc, char *argv[]) {
   if (argc < 2) {
-    fprintf(stderr, "%s: command not found [scan|create]\n", argv[0]);
+    fprintf(stderr, "%s: command not found [scan|create|list]\n", argv[0]);
     return EXIT_FAILURE;
   }
 

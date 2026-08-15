@@ -11,18 +11,24 @@ and records the metadata of everything it finds into a plain-text snapshot file.
 > listed under [Known limitations](#known-limitations) — read that section
 > before using it on anything you care about.
 
+[SPEC.md](SPEC.md) is the design document: goals, staged plan, and the rules the
+implementation is meant to follow. This README describes what the code does
+today, and points at the spec where the two differ.
+
 ## What it does today
 
-Two commands, and that is the whole feature set:
+Three commands, and that is the whole feature set:
 
 | Command | Description |
 | --- | --- |
 | `fsnap scan <directory>` | Recursively walk `<directory>` and print every entry to stdout. |
 | `fsnap create <directory> <output_file>` | Recursively walk `<directory>` and write one metadata record per entry into `<output_file>`. |
+| `fsnap list <snapshot_file>` | Read `<snapshot_file>` and validate every record. Reports the first malformed record on stderr; prints nothing when the snapshot is sound. |
 
-Comparing two snapshots, verifying a snapshot against the live filesystem, and
-listing the contents of a snapshot are **not** implemented — see the
-[Roadmap](#roadmap).
+`list` is a parser and validator by design, not a pretty-printer — see
+[SPEC.md](SPEC.md) §12. The two remaining commands, `fsnap diff` (compare two
+snapshots) and `fsnap verify` (compare a snapshot against the live filesystem),
+are later stages and are **not** implemented. See the [Roadmap](#roadmap).
 
 ## Building
 
@@ -37,6 +43,13 @@ make clean
 The code targets Linux/glibc: it relies on `dirent.d_type`, `realpath(path, NULL)`,
 `mkstemp`, and a few `_GNU_SOURCE` extensions. There is no `install` target.
 
+[SPEC.md](SPEC.md) §19 aims wider than that — Linux *and* NetBSD, POSIX
+interfaces over Linux-specific ones. The gap is `_GNU_SOURCE`, which the sources
+declare per-file; the interfaces actually used behind it (`getline`, `realpath`
+with a `NULL` buffer) are POSIX.1-2008 and would be reachable through
+`_POSIX_C_SOURCE 200809L`. `dirent.d_type` is used as a fast path only, with an
+`lstat` fallback for `DT_UNKNOWN`, as the spec requires.
+
 ## Usage
 
 ```sh
@@ -50,10 +63,15 @@ $ head -3 snapshot.fsnap
 F|0644|1000|1000|182|1785598700|/home/user/projects/example/README.md
 D|0755|1000|1000|80|1785598700|/home/user/projects/example/src
 F|0644|1000|1000|1319|1785598700|/home/user/projects/example/src/main.c
+
+$ fsnap list snapshot.fsnap        # silence means every record parsed
+$ fsnap list broken.fsnap
+broken.fsnap:3: invalid permissions
 ```
 
 Exit status is `0` on success and `1` on failure, with the reason printed to
-stderr.
+stderr. A malformed snapshot makes `list` exit `1` as well — there is no
+distinct status for "the file was readable but its contents are not valid".
 
 ## Snapshot format
 
@@ -91,6 +109,18 @@ The format is ad-hoc and carries no version header. Assume it will change.
   written, and the walk continues with the rest of the tree.
 - **The snapshot is written to a temporary file under `/tmp` first**, then copied
   to the destination. `TMPDIR` is ignored.
+- **`list` stops at the first bad record.** It reports the offending line and
+  field to stderr and gives up, so it is not a full report of everything wrong
+  with a snapshot.
+- **`list` catches the malformed records the spec asks for.** All four examples
+  in [SPEC.md](SPEC.md) §15 — missing fields, invalid permissions, unknown type,
+  negative size — are rejected with the `snapshot:line: message` form the spec
+  prescribes.
+- **Numeric fields must be bare digits.** Per [SPEC.md](SPEC.md) §14 the parser
+  rejects out-of-range values (`ERANGE`), negative `uid`/`gid`, and any leading
+  whitespace or `+` sign, rather than letting `strtoumax` wrap them.
+- **An empty snapshot is valid.** `create` produces a zero-byte file for an
+  empty directory, and `list` accepts it silently with exit `0`.
 
 ## Known limitations
 
@@ -109,7 +139,12 @@ These are actual, reproduced problems, not hypotheticals:
   splits into two lines.
 - **No hard-link or inode information** is recorded, so hard links cannot be
   detected and identical files cannot be correlated.
-- **No test suite.** The `tests/` directory exists but is empty.
+- **`list` counts the lines in a separate pass over the file.** If the snapshot
+  grows between the counting pass and the parsing pass, the records past the
+  original count are silently ignored and `list` still exits `0`.
+- **No test suite.** The `tests/` directory exists but is empty, and none of the
+  tree shapes listed in [SPEC.md](SPEC.md) §22 (hard links, device nodes,
+  unusual filenames) are exercised automatically.
 
 ## Roadmap
 
@@ -125,8 +160,14 @@ Rough order of intent, no timeline:
       read.
 - [ ] Quote or escape the path field, and add a version header to the format.
 - [ ] Record inode and link count so hard links can be identified.
-- [ ] `fsnap diff` — compare a snapshot against the current state of the tree.
-- [ ] `fsnap verify` / `fsnap list` — check and inspect an existing snapshot.
+- [ ] Report a snapshot that grew between the counting pass and the parsing pass
+      instead of silently ignoring the extra records.
+- [ ] Store the symlink target with `readlink`, per [SPEC.md](SPEC.md) §6.
+- [ ] `fsnap diff <old-snapshot> <new-snapshot>` — compare two snapshots and
+      classify each change ([SPEC.md](SPEC.md) §17).
+- [ ] `fsnap verify <snapshot> <directory>` — compare a snapshot against the live
+      filesystem, distinguishing `ENOENT`, `EACCES`, `ENOTDIR` and `ELOOP`
+      rather than collapsing them ([SPEC.md](SPEC.md) §18).
 - [ ] Honour `TMPDIR` instead of hardcoding `/tmp`.
 - [ ] Add a test suite and wire it into the `Makefile`; build with `-O2` so the
       compiler's flow analysis is actually enabled.

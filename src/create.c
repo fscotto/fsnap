@@ -9,9 +9,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <strings.h>
 
 static char file_type(mode_t mode) {
   if (S_ISREG(mode))
@@ -105,11 +105,15 @@ int create(const char *directory, const char *output_file) {
     goto out;
   }
 
-out:
+out:;
+  /* A buffered write can fail for the first time here, so fclose owns errno
+     when nothing had failed before it. */
+  const int saved_errno = errno;
   free(resolved);
   unlink(template);
-  if (tmp != NULL && fclose(tmp) != 0) {
-    rc = -1;
-  }
+  if (tmp != NULL && fclose(tmp) != 0 && rc == 0)
+    return -1;
+  if (rc == -1)
+    errno = saved_errno;
   return rc;
 }

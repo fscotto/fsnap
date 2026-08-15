@@ -9,8 +9,7 @@
 
 static int print_file(const char *file, void *context) {
   (void)context;
-  printf("[%s]\n", file);
-  return 0;
+  return printf("[%s]\n", file) < 0 ? -1 : 0;
 }
 
 /* Scan recursively directory, printing all entry */
@@ -25,9 +24,16 @@ int scan(const char *directory) {
     return -1;
 
   if (walk(dir, print_file, NULL) == -1) {
+    const int saved_errno = errno;
     free(dir);
+    errno = saved_errno;
     return -1;
   }
   free(dir);
+
+  /* stdout is block-buffered when redirected, so a write error can surface
+     only here. */
+  if (fflush(stdout) == EOF)
+    return -1;
   return 0;
 }
