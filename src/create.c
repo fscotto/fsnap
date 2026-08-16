@@ -32,6 +32,40 @@ static char file_type(mode_t mode) {
   return '?';
 }
 
+static char *sanitize_path(const char *path) {
+  size_t len = strlen(path);
+  size_t escapes = 0;
+  for (size_t i = 0; i < len; i++) {
+    if (path[i] == '|' || path[i] == '\\' || path[i] == '\n')
+      escapes++;
+  }
+
+  char *s = calloc(len + escapes + 1, sizeof(char));
+  if (s == NULL)
+    return NULL;
+
+  for (size_t i = 0, j = 0; i < len; i++) {
+    switch (path[i]) {
+    case '\\':
+      s[j++] = '\\';
+      s[j++] = '\\';
+      break;
+    case '|':
+      s[j++] = '\\';
+      s[j++] = '|';
+      break;
+    case '\n':
+      s[j++] = '\\';
+      s[j++] = 'n';
+      break;
+    default:
+      s[j++] = path[i];
+      break;
+    }
+  }
+  return s;
+}
+
 static int write_record(const char *path, void *context) {
   // skip snapshot files
   const char *base = strrchr(path, '/');
@@ -52,12 +86,16 @@ static int write_record(const char *path, void *context) {
   uintmax_t gid = (uintmax_t)st.st_gid;
   intmax_t size = (intmax_t)st.st_size;
   intmax_t time = (intmax_t)st.st_mtime;
+  char *s = sanitize_path(path);
+  if (s == NULL)
+    return -1;
 
-  // Write record in the stream file
-  return fprintf(snapshot, "%c|%04o|%ju|%ju|%jd|%jd|%s\n", type, perm, uid, gid,
-                 size, time, path) < 0
-             ? -1
-             : 0;
+  int ret = fprintf(snapshot, "%c|%04o|%ju|%ju|%jd|%jd|%s\n", type, perm, uid,
+                    gid, size, time, s);
+
+  free(s);
+
+  return ret < 0 ? -1 : 0;
 }
 
 int create(const char *directory, const char *output_file) {

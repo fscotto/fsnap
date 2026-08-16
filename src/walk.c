@@ -60,6 +60,7 @@ int walk(const char *directory, operation op, void *context) {
     if (path == NULL)
       goto out;
 
+#ifdef DT_UNKNOWN
     switch (direntp->d_type) {
     case DT_UNKNOWN:
       // operating system or filesystem do not support dirent->d_type.
@@ -78,6 +79,11 @@ int walk(const char *directory, operation op, void *context) {
         goto out;
       break;
     }
+#else
+    if (handle_unknown(path, op, context) == -1) {
+      goto out;
+    }
+#endif
 
     free(path);
     path = NULL;

@@ -1,4 +1,4 @@
-#define _GNU_SOURCE
+#define _POSIX_C_SOURCE 200809L
 #include "list.h"
 #include <errno.h>
 #include <inttypes.h>
@@ -44,12 +44,59 @@ static int split_record(char *line, char *fields[NFIELDS], char delim) {
     p = sep + 1;
   }
 
+  /* Only the path may contain an escaped delimiter, and it is the last field,
+     so the six separators found above are always the real ones. Validating
+     what is left is the unescaper's job. */
   fields[NFIELDS - 1] = p;
 
-  if (strchr(fields[NFIELDS - 1], delim) != NULL)
-    return -1;
-
   return 0;
+}
+
+/* Undo the escaping create applies: \\ -> \, \| -> |, \n -> newline. A bare
+   delimiter, an unknown escape, or a trailing backslash means the record is
+   malformed; that is reported with EINVAL to keep it apart from allocation
+   failure. */
+static char *unescape_path(const char *s, char delim) {
+  const size_t len = strlen(s);
+
+  char *out = calloc(len + 1, sizeof(char));
+  if (out == NULL)
+    return NULL;
+
+  size_t j = 0;
+  for (size_t i = 0; i < len; i++) {
+    if (s[i] == delim)
+      goto malformed;
+
+    if (s[i] != '\\') {
+      out[j++] = s[i];
+      continue;
+    }
+
+    /* s[len] is the terminator, so a trailing backslash lands on the
+       default case rather than reading past the end. */
+    i++;
+    switch (s[i]) {
+    case '\\':
+      out[j++] = '\\';
+      break;
+    case 'n':
+      out[j++] = '\n';
+      break;
+    default:
+      if (s[i] != delim)
+        goto malformed;
+      out[j++] = delim;
+      break;
+    }
+  }
+
+  return out;
+
+malformed:
+  free(out);
+  errno = EINVAL;
+  return NULL;
 }
 
 static int parse_file_type(const char *s, char *out) {
@@ -191,13 +238,18 @@ struct RecordObject *unpack(char *s) {
     return objp;
   }
 
-  char *path = calloc(strlen(fields[6]) + 1, sizeof(char));
+  errno = 0;
+  char *path = unescape_path(fields[6], '|');
   if (path == NULL) {
+    if (errno == EINVAL) {
+      field = PATH;
+      return objp;
+    }
     release(objp);
     return NULL;
   }
 
-  objp->path = strcpy(path, fields[6]);
+  objp->path = path;
 
   return objp;
 }
