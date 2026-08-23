@@ -12,6 +12,7 @@ SOURCES := \
 	src/main.c \
 	src/utility.c \
 	src/types.c \
+	src/hash.c \
 	src/walk.c \
 	src/scan.c \
 	src/create.c \

@@ -1,11 +1,14 @@
+#define _POSIX_C_SOURCE 1
 #define _DEFAULT_SOURCE
 #define _XOPEN_SOURCE 700
 #include "create.h"
+#include "hash.h"
 #include "utility.h"
 #include "walk.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -90,12 +93,54 @@ static int write_record(const char *path, void *context) {
   if (s == NULL)
     return -1;
 
-  int ret = fprintf(snapshot, "%c|%04o|%ju|%ju|%jd|%jd|%s\n", type, perm, uid,
-                    gid, size, time, s);
+  char *target = NULL;
+  if (type == 'L') {
+    size_t bufsiz = ((size_t)(st.st_size + 1));
+
+    if (st.st_size == 0)
+      bufsiz = (size_t)sysconf(_PC_PATH_MAX);
+
+    target = calloc(bufsiz, sizeof(char));
+    if (target == NULL)
+      goto failure;
+
+    if (readlink(path, target, bufsiz) == -1)
+      goto failure;
+  }
+
+  FILE *f = NULL;
+  uint32_t hash = 0;
+  if (!S_ISDIR(st.st_mode)) {
+    if ((f = fopen(path, "r")) == NULL)
+      goto failure;
+
+    hash = crc32(f);
+  }
+
+  int ret =
+      fprintf(snapshot, "%c|%04o|%ju|%ju|%jd|%jd|%s|%u|%s\n", type, perm, uid,
+              gid, size, time, (target == NULL ? "" : target), hash, s);
 
   free(s);
 
+  if (target != NULL)
+    free(target);
+
+  if (f != NULL)
+    fclose(f);
+
   return ret < 0 ? -1 : 0;
+
+failure:
+  free(s);
+
+  if (target != NULL)
+    free(target);
+
+  if (f != NULL)
+    fclose(f);
+
+  return -1;
 }
 
 int create(const char *directory, const char *output_file) {
@@ -138,6 +183,7 @@ int create(const char *directory, const char *output_file) {
     goto out;
   }
 
+  // FIXME: It doesn't atomic copy, using rename
   if (copy(template, output_file) == -1) {
     rc = -1;
     goto out;

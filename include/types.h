@@ -8,6 +8,8 @@ enum Fields {
   GID,
   SIZE,
   TIME,
+  TARGET,
+  FINGERPRINT,
   PATH,
   NONE,
 };

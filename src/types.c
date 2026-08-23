@@ -5,12 +5,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define NFIELDS 7
+#define NFIELDS 9
 
 enum Fields field = NONE;
 
-static const char *field_names[] = {"file type", "permissions", "uid",  "gid",
-                                    "size",      "time",        "path", "none"};
+static const char *field_names[] = {
+    "file type", "permissions", "uid",         "gid",  "size",
+    "time",      "target",      "fingerprint", "path", "none"};
 
 const char *field_name(enum Fields f) {
   return (f <= NONE) ? field_names[f] : "unknown";
@@ -177,6 +178,8 @@ struct RecordObject {
   intmax_t size;
   intmax_t time;
   char *path;
+  char *target; /* only for symlink */
+  uintmax_t fingerprint;
 };
 
 struct RecordObject *unpack(char *s) {
@@ -221,13 +224,31 @@ struct RecordObject *unpack(char *s) {
     return objp;
   }
 
-  if (fields[6][0] == '\0') {
+  errno = 0;
+  char *target = unescape_path(fields[6], '|');
+  if (target == NULL) {
+    if (errno == EINVAL) {
+      field = TARGET;
+      return objp;
+    }
+    release(objp);
+    return NULL;
+  }
+
+  objp->target = target;
+
+  if (parse_uintmax(fields[7], &objp->fingerprint) == -1) {
+    field = FINGERPRINT;
+    return objp;
+  }
+
+  if (fields[8][0] == '\0') {
     field = PATH;
     return objp;
   }
 
   errno = 0;
-  char *path = unescape_path(fields[6], '|');
+  char *path = unescape_path(fields[8], '|');
   if (path == NULL) {
     if (errno == EINVAL) {
       field = PATH;
@@ -249,6 +270,10 @@ int release(struct RecordObject *obj) {
   if (obj->path != NULL) {
     free(obj->path);
     obj->path = NULL;
+  }
+  if (obj->target != NULL) {
+    free(obj->target);
+    obj->target = NULL;
   }
 
   free(obj);
