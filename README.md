@@ -22,7 +22,7 @@ Three commands, and that is the whole feature set:
 | Command | Description |
 | --- | --- |
 | `fsnap scan <directory>` | Recursively walk `<directory>` and print every entry to stdout. |
-| `fsnap create <directory> <output_file>` | Recursively walk `<directory>` and write one metadata record per entry into `<output_file>`. |
+| `fsnap create <directory> <output_file>` | Recursively walk `<directory>`, compute fingerprints, and write one metadata record per entry into `<output_file>`. |
 | `fsnap list <snapshot_file>` | Read `<snapshot_file>` and validate every record. Reports the first malformed record on stderr; prints nothing when the snapshot is sound. |
 
 `list` is a parser and validator by design, not a pretty-printer — see
@@ -59,26 +59,27 @@ $ fsnap scan ~/projects/example
 [/home/user/projects/example/src/main.c]
 
 $ fsnap create ~/projects/example snapshot.fsnap
-$ head -3 snapshot.fsnap
-F|0644|1000|1000|182|1785598700|/home/user/projects/example/README.md
-D|0755|1000|1000|80|1785598700|/home/user/projects/example/src
-F|0644|1000|1000|1319|1785598700|/home/user/projects/example/src/main.c
+$ head -4 snapshot.fsnap
+F|0644|1000|1000|182|1785598700||4022421711|/home/user/projects/example/README.md
+D|0755|1000|1000|80|1785598700||0|/home/user/projects/example/src
+F|0644|1000|1000|1319|1785598700||2184918239|/home/user/projects/example/src/main.c
+L|0777|1000|1000|6|1785598700|main.c|0|/home/user/projects/example/symlink-test
 
 $ fsnap list snapshot.fsnap        # silence means every record parsed
 $ fsnap list broken.fsnap
 broken.fsnap:3: invalid permissions
 ```
 
-Exit status is `0` on success and `1` on failure, with the reason printed to
-stderr. A malformed snapshot makes `list` exit `1` as well — there is no
+Exit status is `0` on success and `1` on failure (or `128` in case of malformed snapshots parsed by `list`), with the reason printed to
+stderr. A malformed snapshot makes `list` exit with a failure code — there is no
 distinct status for "the file was readable but its contents are not valid".
 
 ## Snapshot format
 
-One record per line, seven `|`-separated fields:
+One record per line, nine `|`-separated fields:
 
 ```
-type|permissions|uid|gid|size|mtime|path
+type|permissions|uid|gid|size|time|target|fingerprint|path
 ```
 
 | Field | Description |
@@ -87,16 +88,22 @@ type|permissions|uid|gid|size|mtime|path
 | `permissions` | Permission bits, four octal digits |
 | `uid` / `gid` | Numeric owner and group |
 | `size` | Size in bytes, as reported by `lstat` |
-| `mtime` | Modification time, seconds since the Unix epoch |
-| `path` | Absolute path, resolved through `realpath` |
+| `time` | Modification time, seconds since the Unix epoch |
+| `target` | Symlink target (resolved via `readlink` and escaped; empty for non-symlink entries) |
+| `fingerprint` | CRC32 checksum of file contents (computed for non-directory types; `0` for directories) |
+| `path` | Absolute path, resolved through `realpath` and escaped |
 
-The format is ad-hoc and carries no version header. Assume it will change.
+### Escaping rules
+The snapshot format handles unusual paths and symlink targets safely by escaping delimiters and special characters:
+- `\` is escaped to `\\`
+- `|` is escaped to `\|`
+- Newlines are escaped to `\n`
+
+The `list` parser automatically unescapes these fields during validation.
 
 ## Behaviour worth knowing
 
-- **Symlinks are recorded, never followed.** Metadata comes from `lstat`, so a
-  symlink is stored as `L` and the walk does not descend into it. Broken
-  symlinks are recorded normally.
+- **Symlinks are recorded, and their targets are stored.** Metadata comes from `lstat`, so the walk does not descend into symlinks, but the symlink target is read using `readlink()` and saved in the `target` field. Broken symlinks are recorded normally.
 - **Paths are absolute**, resolved through `realpath`. Snapshots are therefore
   tied to the machine and the location they were taken from.
 - **Entries appear in `readdir` order**, not sorted. Two snapshots of the same
@@ -114,8 +121,7 @@ The format is ad-hoc and carries no version header. Assume it will change.
   with a snapshot.
 - **`list` catches the malformed records the spec asks for.** All four examples
   in [SPEC.md](SPEC.md) §15 — missing fields, invalid permissions, unknown type,
-  negative size — are rejected with the `snapshot:line: message` form the spec
-  prescribes.
+  negative size — are rejected with the `snapshot:line: invalid <field_name>` or `snapshot:line: unparsable line` form.
 - **Numeric fields must be bare digits.** Per [SPEC.md](SPEC.md) §14 the parser
   rejects out-of-range values (`ERANGE`), negative `uid`/`gid`, and any leading
   whitespace or `+` sign, rather than letting `strtoumax` wrap them.
@@ -134,17 +140,13 @@ These are actual, reproduced problems, not hypotheticals:
 - **No exit code for a partial snapshot.** When directories are skipped because
   they are unreadable, the run still exits `0`. If the top-level directory itself
   is unreadable, the result is an empty snapshot reported as success.
-- **The format breaks on unusual filenames.** There is no quoting or escaping: a
-  name containing `|` corrupts the field layout, and a name containing a newline
-  splits into two lines.
 - **No hard-link or inode information** is recorded, so hard links cannot be
   detected and identical files cannot be correlated.
 - **`list` counts the lines in a separate pass over the file.** If the snapshot
   grows between the counting pass and the parsing pass, the records past the
   original count are silently ignored and `list` still exits `0`.
 - **No test suite.** The `tests/` directory exists but is empty, and none of the
-  tree shapes listed in [SPEC.md](SPEC.md) §22 (hard links, device nodes,
-  unusual filenames) are exercised automatically.
+  tree shapes listed in [SPEC.md](SPEC.md) §22 (hard links, device nodes) are exercised automatically.
 
 ## Roadmap
 
@@ -158,11 +160,10 @@ Rough order of intent, no timeline:
 - [ ] Introduce a distinct exit status for "completed with warnings", the way
       `tar` and `rsync` do, and fail outright when the root directory cannot be
       read.
-- [ ] Quote or escape the path field, and add a version header to the format.
-- [ ] Record inode and link count so hard links can be identified.
+- [ ] Add a version header to the format (e.g. `FSNAP|1`).
+- [ ] Record inode, device ID, and link count so hard links can be identified.
 - [ ] Report a snapshot that grew between the counting pass and the parsing pass
       instead of silently ignoring the extra records.
-- [ ] Store the symlink target with `readlink`, per [SPEC.md](SPEC.md) §6.
 - [ ] `fsnap diff <old-snapshot> <new-snapshot>` — compare two snapshots and
       classify each change ([SPEC.md](SPEC.md) §17).
 - [ ] `fsnap verify <snapshot> <directory>` — compare a snapshot against the live
