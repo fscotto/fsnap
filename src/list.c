@@ -38,17 +38,17 @@ int list(const char *snapshot) {
       rc = -1;
       goto out;
     }
-    int ret = Unpack(objp, buf);
+    int ret = RecordObjectUnpack(objp, buf);
     if (field != NONE) {
       fprintf(stderr, "%s:%d: invalid %s\n", snapshot, i + 1, FieldName(field));
       rc = 128;
-      Release(objp);
+      RecordObjectRelease(objp);
       break;
     }
 
     if (ret == -1) {
       fprintf(stderr, "%s:%d: unparsable line\n", snapshot, i + 1);
-      Release(objp);
+      RecordObjectRelease(objp);
       rc = 128;
       break;
     }
@@ -74,7 +74,7 @@ out:;
   free(buf);
   if (records != NULL) {
     for (int j = 0; j < arr_size; j++) {
-      Release(records[j]);
+      RecordObjectRelease(records[j]);
       records[j] = NULL;
     }
     free(records);

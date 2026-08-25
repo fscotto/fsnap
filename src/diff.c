@@ -37,10 +37,10 @@ static int load_in_memory(const char *file, struct RecordObject ***records,
       goto failure;
     }
 
-    int ret = Unpack(objp, buf);
+    int ret = RecordObjectUnpack(objp, buf);
     if (ret == -1) {
       errno = EINVAL;
-      Release(objp);
+      RecordObjectRelease(objp);
       goto failure;
     }
 
@@ -70,7 +70,7 @@ failure:
 
 static int dealloc(struct RecordObject **records, int size) {
   for (int j = 0; j < size; j++) {
-    Release(records[j]);
+    RecordObjectRelease(records[j]);
     records[j] = NULL;
   }
   free(records);
@@ -80,7 +80,7 @@ static int dealloc(struct RecordObject **records, int size) {
 static int order_by_path(const void *o1, const void *o2) {
   const struct RecordObject *r1 = *(const struct RecordObject *const *)o1;
   const struct RecordObject *r2 = *(const struct RecordObject *const *)o2;
-  return strcmp(GetPath(r1), GetPath(r2));
+  return strcmp(RecordObjectPath(r1), RecordObjectPath(r2));
 }
 
 int diff(const char *file1, const char *file2) {
@@ -116,16 +116,16 @@ int diff(const char *file1, const char *file2) {
 
     char code = 0;
     const char *path = NULL;
-    int c = strcmp(GetPath(r1), GetPath(r2));
+    int c = strcmp(RecordObjectPath(r1), RecordObjectPath(r2));
     if (c < 0) {
       code = 'D';
-      path = GetPath(r1);
+      path = RecordObjectPath(r1);
       m++;
     } else if (c > 0) {
       code = 'A';
-      path = GetPath(r2);
+      path = RecordObjectPath(r2);
       n++;
-    } else if (Compare(r1, r2) != 0) {
+    } else if (RecordObjectCompare(r1, r2) != 0) {
       switch (field) {
       case TARGET:
         code = 'L';
@@ -137,7 +137,7 @@ int diff(const char *file1, const char *file2) {
         code = 'M';
         break;
       }
-      path = GetPath(r1);
+      path = RecordObjectPath(r1);
       m++;
       n++;
     } else {
@@ -152,13 +152,13 @@ int diff(const char *file1, const char *file2) {
 
   while (m < len1) {
     const struct RecordObject *r = records1[m];
-    fprintf(stdout, "D\t%s\n", GetPath(r));
+    fprintf(stdout, "D\t%s\n", RecordObjectPath(r));
     m++;
   }
 
   while (n < len2) {
     const struct RecordObject *r = records2[n];
-    fprintf(stdout, "A\t%s\n", GetPath(r));
+    fprintf(stdout, "A\t%s\n", RecordObjectPath(r));
     n++;
   }
 

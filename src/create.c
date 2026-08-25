@@ -25,7 +25,7 @@ static int write_record(const char *path, void *context) {
   if (r == NULL)
     return -1;
   int ret = RecordObjectWrite(r, path, (FILE *)context);
-  Release(r);
+  RecordObjectRelease(r);
   return ret < 0 ? -1 : 0;
 }
 

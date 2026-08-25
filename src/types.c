@@ -255,7 +255,7 @@ struct RecordObject *NewRecordObject() {
   return ret;
 }
 
-int Unpack(struct RecordObject *self, char *s) {
+int RecordObjectUnpack(struct RecordObject *self, char *s) {
   char *fields[NFIELDS];
   if (split_record(s, fields, '|') == -1)
     return -1;
@@ -329,7 +329,7 @@ int Unpack(struct RecordObject *self, char *s) {
   return 0;
 }
 
-int Compare(struct RecordObject *self, struct RecordObject *other) {
+int RecordObjectCompare(struct RecordObject *self, struct RecordObject *other) {
   field = NONE;
 
   if (self == NULL)
@@ -433,7 +433,7 @@ int RecordObjectWrite(struct RecordObject *self, const char *path, FILE *out) {
                  self->path);
 }
 
-int Release(struct RecordObject *self) {
+int RecordObjectRelease(struct RecordObject *self) {
   if (self == NULL)
     return -1;
   if (self->path != NULL) {
@@ -449,16 +449,22 @@ int Release(struct RecordObject *self) {
 }
 
 // Accessors
-char GetFileType(const struct RecordObject *self) { return self->file_type; }
-unsigned int GetPermissions(const struct RecordObject *self) {
+char RecordObjectFileType(const struct RecordObject *self) {
+  return self->file_type;
+}
+unsigned int RecordObjectPermissions(const struct RecordObject *self) {
   return self->perm;
 }
-uintmax_t GetUid(const struct RecordObject *self) { return self->uid; }
-uintmax_t GetGid(const struct RecordObject *self) { return self->gid; }
-intmax_t GetSize(const struct RecordObject *self) { return self->size; }
-intmax_t GetTime(const struct RecordObject *self) { return self->time; }
-const char *GetPath(const struct RecordObject *self) { return self->path; }
-const char *GetTarget(const struct RecordObject *self) { return self->target; }
-uintmax_t GetFingerPrint(const struct RecordObject *self) {
+uintmax_t RecordObjectUid(const struct RecordObject *self) { return self->uid; }
+uintmax_t RecordObjectGid(const struct RecordObject *self) { return self->gid; }
+intmax_t RecordObjectSize(const struct RecordObject *self) { return self->size; }
+intmax_t RecordObjectTime(const struct RecordObject *self) { return self->time; }
+const char *RecordObjectPath(const struct RecordObject *self) {
+  return self->path;
+}
+const char *RecordObjectTarget(const struct RecordObject *self) {
+  return self->target;
+}
+uintmax_t RecordObjectFingerPrint(const struct RecordObject *self) {
   return self->fingerprint;
 }

@@ -25,18 +25,18 @@ struct RecordObject;
 
 // Methods
 struct RecordObject *NewRecordObject();
-int Unpack(struct RecordObject *, char *);
+int RecordObjectUnpack(struct RecordObject *, char *);
 int RecordObjectWrite(struct RecordObject *self, const char *path, FILE *out);
-int Compare(struct RecordObject *, struct RecordObject *);
-char GetFileType(const struct RecordObject *);
-unsigned int GetPermissions(const struct RecordObject *);
-uintmax_t GetUid(const struct RecordObject *);
-uintmax_t GetGid(const struct RecordObject *);
-intmax_t GetSize(const struct RecordObject *);
-intmax_t GetTime(const struct RecordObject *);
-const char *GetPath(const struct RecordObject *);
-const char *GetTarget(const struct RecordObject *);
-uintmax_t GetFingerPrint(const struct RecordObject *);
-int Release(struct RecordObject *);
+int RecordObjectCompare(struct RecordObject *, struct RecordObject *);
+char RecordObjectFileType(const struct RecordObject *);
+unsigned int RecordObjectPermissions(const struct RecordObject *);
+uintmax_t RecordObjectUid(const struct RecordObject *);
+uintmax_t RecordObjectGid(const struct RecordObject *);
+intmax_t RecordObjectSize(const struct RecordObject *);
+intmax_t RecordObjectTime(const struct RecordObject *);
+const char *RecordObjectPath(const struct RecordObject *);
+const char *RecordObjectTarget(const struct RecordObject *);
+uintmax_t RecordObjectFingerPrint(const struct RecordObject *);
+int RecordObjectRelease(struct RecordObject *);
 
 #endif
