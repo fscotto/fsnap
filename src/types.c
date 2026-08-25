@@ -20,7 +20,7 @@ static const char *field_names[] = {
     "file type", "permissions", "uid",         "gid",  "size",
     "time",      "target",      "fingerprint", "path", "none"};
 
-const char *FieldName(enum Fields f) {
+const char *RecordObjectFieldName(enum Fields f) {
   return (f <= NONE) ? field_names[f] : "unknown";
 }
 

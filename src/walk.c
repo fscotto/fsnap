@@ -18,7 +18,7 @@ static int ignore_file(const char *name) {
   return 0;
 }
 
-static int handle_unknown(const char *path, operation op, void *context) {
+static int handle_unknown(const char *path, WalkOp op, void *context) {
   struct stat st;
 
   if (lstat(path, &st) == -1) {
@@ -36,7 +36,7 @@ static int handle_unknown(const char *path, operation op, void *context) {
   return 0;
 }
 
-int walk(const char *directory, operation op, void *context) {
+int walk(const char *directory, WalkOp op, void *context) {
   errno = 0;
   DIR *dirp = opendir(directory);
   if (dirp == NULL) {

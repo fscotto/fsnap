@@ -40,7 +40,7 @@ int list(const char *snapshot) {
     }
     int ret = RecordObjectUnpack(objp, buf);
     if (field != NONE) {
-      fprintf(stderr, "%s:%d: invalid %s\n", snapshot, i + 1, FieldName(field));
+      fprintf(stderr, "%s:%d: invalid %s\n", snapshot, i + 1, RecordObjectFieldName(field));
       rc = 128;
       RecordObjectRelease(objp);
       break;

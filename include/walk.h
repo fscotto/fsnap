@@ -1,8 +1,8 @@
 #ifndef WALK_H
 #define WALK_H
 
-typedef int(*operation)(const char *, void *);
+typedef int(*WalkOp)(const char *, void *);
 
-int walk(const char *directory, operation op, void *context);
+int walk(const char *directory, WalkOp op, void *context);
 
 #endif

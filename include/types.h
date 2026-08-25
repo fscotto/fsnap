@@ -1,5 +1,5 @@
-#ifndef TYPE_H
-#define TYPE_H
+#ifndef TYPES_H
+#define TYPES_H
 
 #include <inttypes.h>
 #include <stdio.h>
@@ -19,7 +19,7 @@ enum Fields {
 
 extern enum Fields field;
 
-const char *FieldName(enum Fields f);
+const char *RecordObjectFieldName(enum Fields f);
 
 struct RecordObject;
 
