@@ -31,7 +31,7 @@ static int load_in_memory(const char *file, struct RecordObject ***records,
   int i = 0;
   size_t size = 0;
   while (getline(&buf, &size, stream) != -1 && i < *count) {
-    struct RecordObject *objp = NewRecordObject();
+    struct RecordObject *objp = RecordObjectNew();
     if (objp == NULL) {
       errno = ENOMEM;
       goto failure;
@@ -92,17 +92,11 @@ int diff(const char *file1, const char *file2) {
   int ret1 = load_in_memory(file1, &records1, &len1);
   if (ret1 == -1) {
     goto failure;
-  } else if (ret1 > 0) {
-    exit_failure = ret1;
-    goto failure;
   }
 
   int len2 = 0;
   int ret2 = load_in_memory(file2, &records2, &len2);
   if (ret2 == -1) {
-    goto failure;
-  } else if (ret2 > 0) {
-    exit_failure = ret2;
     goto failure;
   }
 

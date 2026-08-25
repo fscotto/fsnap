@@ -3,8 +3,8 @@
 #define CRC32_POLY 0xEDB88320
 #define BUFFER_SIZE 4096
 
-uint32_t crc32_table[256];
-int table_computed = 0;
+static uint32_t crc32_table[256];
+static int table_computed = 0;
 
 static void init_crc32_table() {
   for (uint32_t i = 0; i < 256; i++) {

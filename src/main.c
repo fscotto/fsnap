@@ -10,7 +10,7 @@ int main(int argc, char *argv[]) {
     return EXIT_FAILURE;
   }
 
-  // I check the argument command exists
+  /* Check that the argument command exists */
   errno = 0;
   const char *cmd = argv[1];
   if (strcmp(cmd, "scan") == 0) {

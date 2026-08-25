@@ -33,7 +33,7 @@ int list(const char *snapshot) {
     goto out;
   }
   while (getline(&buf, &size, snapshot_file) != -1 && i < arr_size) {
-    struct RecordObject *objp = NewRecordObject();
+    struct RecordObject *objp = RecordObjectNew();
     if (objp == NULL) {
       rc = -1;
       goto out;

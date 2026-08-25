@@ -23,11 +23,11 @@ const char *RecordObjectFieldName(enum Fields f);
 
 struct RecordObject;
 
-// Methods
-struct RecordObject *NewRecordObject();
+/* Methods */
+struct RecordObject *RecordObjectNew();
 int RecordObjectUnpack(struct RecordObject *, char *);
 int RecordObjectWrite(struct RecordObject *self, const char *path, FILE *out);
-int RecordObjectCompare(struct RecordObject *, struct RecordObject *);
+int RecordObjectCompare(const struct RecordObject *, const struct RecordObject *);
 char RecordObjectFileType(const struct RecordObject *);
 unsigned int RecordObjectPermissions(const struct RecordObject *);
 uintmax_t RecordObjectUid(const struct RecordObject *);

@@ -1,4 +1,4 @@
-#define _POSIX_C_SOURCE 1
+#define _POSIX_C_SOURCE 200809L
 #define _DEFAULT_SOURCE
 #define _XOPEN_SOURCE 700
 #include "hash.h"
@@ -24,7 +24,7 @@ const char *RecordObjectFieldName(enum Fields f) {
   return (f <= NONE) ? field_names[f] : "unknown";
 }
 
-//====================== static functions =====================================
+/*======================= static functions ===================================*/
 
 static int split_record(char *line, char *fields[NFIELDS], char delim) {
   char *p = line;
@@ -232,7 +232,7 @@ static char *sanitize_path(const char *path) {
   return s;
 }
 
-//========================= RecordObject =================================
+/*========================== RecordObject ====================================*/
 
 struct RecordObject {
   char file_type;
@@ -246,7 +246,7 @@ struct RecordObject {
   uintmax_t fingerprint;
 };
 
-struct RecordObject *NewRecordObject() {
+struct RecordObject *RecordObjectNew() {
   struct RecordObject *ret = calloc(1, sizeof(*ret));
   if (ret == NULL)
     return NULL;
@@ -329,7 +329,7 @@ int RecordObjectUnpack(struct RecordObject *self, char *s) {
   return 0;
 }
 
-int RecordObjectCompare(struct RecordObject *self, struct RecordObject *other) {
+int RecordObjectCompare(const struct RecordObject *self, const struct RecordObject *other) {
   field = NONE;
 
   if (self == NULL)
@@ -448,7 +448,7 @@ int RecordObjectRelease(struct RecordObject *self) {
   return 0;
 }
 
-// Accessors
+/* Accessors */
 char RecordObjectFileType(const struct RecordObject *self) {
   return self->file_type;
 }

@@ -1,4 +1,4 @@
-#define _POSIX_C_SOURCE 1
+#define _POSIX_C_SOURCE 200809L
 #define _DEFAULT_SOURCE
 #define _XOPEN_SOURCE 700
 #include "create.h"
@@ -14,14 +14,14 @@
 #include <unistd.h>
 
 static int write_record(const char *path, void *context) {
-  // skip snapshot files
+  /* skip snapshot files */
   const char *base = strrchr(path, '/');
   base = base ? base + 1 : path;
   size_t n = strlen(base);
   if (n >= 6 && strcasecmp(base + n - 6, ".fsnap") == 0)
     return 0;
 
-  struct RecordObject *r = NewRecordObject();
+  struct RecordObject *r = RecordObjectNew();
   if (r == NULL)
     return -1;
   int ret = RecordObjectWrite(r, path, (FILE *)context);
@@ -69,7 +69,7 @@ int create(const char *directory, const char *output_file) {
     goto out;
   }
 
-  // FIXME: It doesn't atomic copy, using rename
+  /* FIXME: It doesn't atomic copy, using rename */
   if (copy(template, output_file) == -1) {
     rc = -1;
     goto out;

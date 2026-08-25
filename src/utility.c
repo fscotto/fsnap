@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define BUFFER_SIZE 8192
+
 char *strconcat(const char *src, int n, ...) {
   va_list ap;
 
@@ -57,7 +59,7 @@ int copy(const char *src, const char *dst) {
     return -1;
   }
 
-  char buffer[8192]; // Buffer di 8KB
+  char buffer[BUFFER_SIZE];
   size_t bytes;
 
   while ((bytes = fread(buffer, 1, sizeof(buffer), file1)) > 0) {

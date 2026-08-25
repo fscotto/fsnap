@@ -63,8 +63,8 @@ int walk(const char *directory, WalkOp op, void *context) {
 #ifdef DT_UNKNOWN
     switch (direntp->d_type) {
     case DT_UNKNOWN:
-      // operating system or filesystem do not support dirent->d_type.
-      // In this case use alternative algorithm for walk directories.
+      /* operating system or filesystem do not support dirent->d_type.
+         In this case use alternative algorithm for walk directories. */
       if (handle_unknown(path, op, context) == -1)
         goto out;
       break;
