@@ -4,5 +4,6 @@
 #include "scan.h"
 #include "create.h"
 #include "list.h"
+#include "diff.h"
 
 #endif

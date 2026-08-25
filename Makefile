@@ -1,7 +1,7 @@
 CC := cc
 
 CPPFLAGS := -Iinclude -MMD -MP
-CFLAGS := -std=c11 -Wall -Wextra -Wpedantic -Wconversion
+CFLAGS := -std=c11 -Wall -Wextra -Wpedantic -Wconversion -ggdb
 LDFLAGS :=
 LDLIBS :=
 
@@ -16,7 +16,8 @@ SOURCES := \
 	src/walk.c \
 	src/scan.c \
 	src/create.c \
-	src/list.c
+	src/list.c \
+	src/diff.c
 
 OBJECTS := $(SOURCES:%.c=$(BUILD_DIR)/%.o)
 DEPENDENCIES := $(OBJECTS:.o=.d)

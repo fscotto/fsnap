@@ -1,5 +1,6 @@
 #define _XOPEN_SOURCE 700
 #include "utility.h"
+#include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -80,4 +81,32 @@ int copy(const char *src, const char *dst) {
     rc = -1;
 
   return rc;
+}
+
+int count_lines(const char *file) {
+  FILE *f = fopen(file, "r");
+  if (f == NULL) {
+    return -1;
+  }
+
+  size_t size = 0;
+  int count = 0;
+  char *buf = NULL;
+  while (getline(&buf, &size, f) != -1)
+    count++;
+
+  if (ferror(f)) {
+    /* Capture before the cleanup: free and fclose may both touch errno. */
+    const int saved_errno = errno;
+    free(buf);
+    fclose(f);
+    errno = saved_errno;
+    return -1;
+  }
+
+  free(buf);
+  if (fclose(f) != 0) {
+    return -1;
+  }
+  return count;
 }

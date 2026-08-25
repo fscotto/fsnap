@@ -17,18 +17,18 @@ today, and points at the spec where the two differ.
 
 ## What it does today
 
-Three commands, and that is the whole feature set:
+Four commands are implemented:
 
 | Command | Description |
 | --- | --- |
 | `fsnap scan <directory>` | Recursively walk `<directory>` and print every entry to stdout. |
 | `fsnap create <directory> <output_file>` | Recursively walk `<directory>`, compute fingerprints, and write one metadata record per entry into `<output_file>`. |
 | `fsnap list <snapshot_file>` | Read `<snapshot_file>` and validate every record. Reports the first malformed record on stderr; prints nothing when the snapshot is sound. |
+| `fsnap diff <old_snapshot> <new_snapshot>` | Load both snapshots, sort their records by path, and print additions, deletions, and changes. |
 
 `list` is a parser and validator by design, not a pretty-printer — see
-[SPEC.md](SPEC.md) §12. The two remaining commands, `fsnap diff` (compare two
-snapshots) and `fsnap verify` (compare a snapshot against the live filesystem),
-are later stages and are **not** implemented. See the [Roadmap](#roadmap).
+[SPEC.md](SPEC.md) §12. `verify` (compare a snapshot against the live
+filesystem) is not implemented. See the [Roadmap](#roadmap).
 
 ## Building
 
@@ -68,11 +68,17 @@ L|0777|1000|1000|6|1785598700|main.c|0|/home/user/projects/example/symlink-test
 $ fsnap list snapshot.fsnap        # silence means every record parsed
 $ fsnap list broken.fsnap
 broken.fsnap:3: invalid permissions
+
+$ fsnap diff old.fsnap new.fsnap
+A	/home/user/projects/example/new-file
+P	/home/user/projects/example/README.md
+D	/home/user/projects/example/old-file
 ```
 
-Exit status is `0` on success and `1` on failure (or `128` in case of malformed snapshots parsed by `list`), with the reason printed to
-stderr. A malformed snapshot makes `list` exit with a failure code — there is no
-distinct status for "the file was readable but its contents are not valid".
+The program exits with `0` on success and `1` on failure. `list` internally
+returns `128` for a malformed record, but `main` maps it to exit status `1`.
+Diagnostics are written to stderr. A malformed snapshot has no distinct public
+exit status from another failure.
 
 ## Snapshot format
 
@@ -89,23 +95,45 @@ type|permissions|uid|gid|size|time|target|fingerprint|path
 | `uid` / `gid` | Numeric owner and group |
 | `size` | Size in bytes, as reported by `lstat` |
 | `time` | Modification time, seconds since the Unix epoch |
-| `target` | Symlink target (resolved via `readlink` and escaped; empty for non-symlink entries) |
-| `fingerprint` | CRC32 checksum of file contents (computed for non-directory types; `0` for directories) |
-| `path` | Absolute path, resolved through `realpath` and escaped |
+| `target` | Symlink target returned by `readlink`; empty for non-symlink entries |
+| `fingerprint` | CRC32 checksum read through `fopen(path, "r")` for every non-directory entry; `0` for directories |
+| `path` | Absolute path: the input root is resolved with `realpath`, then child names are appended; it is escaped |
 
 ### Escaping rules
-The snapshot format handles unusual paths and symlink targets safely by escaping delimiters and special characters:
+Only the `path` field is escaped by the writer:
 - `\` is escaped to `\\`
 - `|` is escaped to `\|`
 - Newlines are escaped to `\n`
 
-The `list` parser automatically unescapes these fields during validation.
+The parser unescapes both `path` and `target`, but the writer does not escape
+`target`. Consequently, a symlink target containing `|`, a newline, or a
+backslash does not produce a reliably parseable snapshot.
+
+### `diff` output
+
+Each change is printed as `code<TAB>path` after both inputs have been sorted by
+pathname:
+
+| Code | Current meaning |
+| --- | --- |
+| `A` | Present only in the new snapshot |
+| `D` | Present only in the old snapshot |
+| `P` | Permissions are the first differing field |
+| `L` | Symlink target is the only differing field after the other compared fields match |
+| `M` | Any other difference, including type, owner, size, time, or fingerprint |
+
+`diff` does not print a line number or field name when an input snapshot is
+malformed; it fails with `EINVAL`.
 
 ## Behaviour worth knowing
 
-- **Symlinks are recorded, and their targets are stored.** Metadata comes from `lstat`, so the walk does not descend into symlinks, but the symlink target is read using `readlink()` and saved in the `target` field. Broken symlinks are recorded normally.
-- **Paths are absolute**, resolved through `realpath`. Snapshots are therefore
-  tied to the machine and the location they were taken from.
+- **Symlinks are not followed by the walker.** Their metadata comes from
+  `lstat()` and their target is read using `readlink()`. The subsequent
+  fingerprint step opens the symlink target, however, so `create` fails for a
+  broken symlink and fingerprints the referent rather than the link target.
+- **Paths are absolute.** The input directory is resolved through `realpath()`
+  before traversal; snapshots are tied to the machine and location where they
+  were taken.
 - **Entries appear in `readdir` order**, not sorted. Two snapshots of the same
   unchanged tree are not guaranteed to be byte-identical.
 - **Files whose name ends in `.fsnap` are skipped by `create`**, so an existing
@@ -142,11 +170,17 @@ These are actual, reproduced problems, not hypotheticals:
   is unreadable, the result is an empty snapshot reported as success.
 - **No hard-link or inode information** is recorded, so hard links cannot be
   detected and identical files cannot be correlated.
+- **`create` is unsafe for several non-regular entry types.** It attempts to
+  open every non-directory entry to fingerprint it. A FIFO can block forever;
+  devices, sockets, unreadable files, and broken symlinks can make creation
+  fail.
+- **Symlink targets are not escaped by the writer.** A target containing `|`, a
+  newline, or a backslash can make the generated record unparsable by `list`.
 - **`list` counts the lines in a separate pass over the file.** If the snapshot
   grows between the counting pass and the parsing pass, the records past the
   original count are silently ignored and `list` still exits `0`.
-- **No test suite.** The `tests/` directory exists but is empty, and none of the
-  tree shapes listed in [SPEC.md](SPEC.md) §22 (hard links, device nodes) are exercised automatically.
+- **No test suite.** There is currently no `tests/` directory or automated
+  coverage for the tree shapes listed in [SPEC.md](SPEC.md) §22.
 
 ## Roadmap
 
@@ -164,8 +198,6 @@ Rough order of intent, no timeline:
 - [ ] Record inode, device ID, and link count so hard links can be identified.
 - [ ] Report a snapshot that grew between the counting pass and the parsing pass
       instead of silently ignoring the extra records.
-- [ ] `fsnap diff <old-snapshot> <new-snapshot>` — compare two snapshots and
-      classify each change ([SPEC.md](SPEC.md) §17).
 - [ ] `fsnap verify <snapshot> <directory>` — compare a snapshot against the live
       filesystem, distinguishing `ENOENT`, `EACCES`, `ENOTDIR` and `ELOOP`
       rather than collapsing them ([SPEC.md](SPEC.md) §18).

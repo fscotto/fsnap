@@ -1,39 +1,12 @@
 #define _POSIX_C_SOURCE 200809L
 #include "list.h"
 #include "types.h"
+#include "utility.h"
 #include <errno.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-static int count_lines(const char *file) {
-  FILE *f = fopen(file, "r");
-  if (f == NULL) {
-    return -1;
-  }
-
-  size_t size = 0;
-  int count = 0;
-  char *buf = NULL;
-  while (getline(&buf, &size, f) != -1)
-    count++;
-
-  if (ferror(f)) {
-    /* Capture before the cleanup: free and fclose may both touch errno. */
-    const int saved_errno = errno;
-    free(buf);
-    fclose(f);
-    errno = saved_errno;
-    return -1;
-  }
-
-  free(buf);
-  if (fclose(f) != 0) {
-    return -1;
-  }
-  return count;
-}
 
 int list(const char *snapshot) {
   FILE *snapshot_file = fopen(snapshot, "r");
@@ -60,20 +33,26 @@ int list(const char *snapshot) {
     goto out;
   }
   while (getline(&buf, &size, snapshot_file) != -1 && i < arr_size) {
-    struct RecordObject *objp = unpack(buf);
+    struct RecordObject *objp = NewRecordObject();
     if (objp == NULL) {
+      rc = -1;
+      goto out;
+    }
+    int ret = Unpack(objp, buf);
+    if (field != NONE) {
+      fprintf(stderr, "%s:%d: invalid %s\n", snapshot, i + 1, FieldName(field));
+      rc = 128;
+      Release(objp);
+      break;
+    }
+
+    if (ret == -1) {
       fprintf(stderr, "%s:%d: unparsable line\n", snapshot, i + 1);
+      Release(objp);
       rc = 128;
       break;
     }
 
-    if (field != NONE) {
-      fprintf(stderr, "%s:%d: invalid %s\n", snapshot, i + 1,
-              field_name(field));
-      rc = 128;
-      release(objp);
-      break;
-    }
     records[i] = objp;
     i++;
   }
@@ -95,7 +74,7 @@ out:;
   free(buf);
   if (records != NULL) {
     for (int j = 0; j < arr_size; j++) {
-      release(records[j]);
+      Release(records[j]);
       records[j] = NULL;
     }
     free(records);

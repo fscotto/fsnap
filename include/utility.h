@@ -7,4 +7,6 @@ char *resolve_path(const char *path);
 
 int copy(const char *src, const char *dst);
 
+int count_lines(const char *file);
+
 #endif

@@ -1,6 +1,5 @@
 #include "types.h"
 #include <errno.h>
-#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,9 +12,11 @@ static const char *field_names[] = {
     "file type", "permissions", "uid",         "gid",  "size",
     "time",      "target",      "fingerprint", "path", "none"};
 
-const char *field_name(enum Fields f) {
+const char *FieldName(enum Fields f) {
   return (f <= NONE) ? field_names[f] : "unknown";
 }
+
+//====================== static functions =====================================
 
 static int split_record(char *line, char *fields[NFIELDS], char delim) {
   char *p = line;
@@ -170,6 +171,8 @@ static int parse_intmax_nonnegative(const char *s, intmax_t *out) {
   return 0;
 }
 
+//========================= RecordObject =================================
+
 struct RecordObject {
   char file_type;
   unsigned int perm;
@@ -182,46 +185,50 @@ struct RecordObject {
   uintmax_t fingerprint;
 };
 
-struct RecordObject *unpack(char *s) {
+struct RecordObject *NewRecordObject() {
+  struct RecordObject *ret = calloc(1, sizeof(*ret));
+  if (ret == NULL)
+    return NULL;
+  ret->path = NULL;
+  ret->target = NULL;
+  return ret;
+}
+
+int Unpack(struct RecordObject *self, char *s) {
   char *fields[NFIELDS];
   if (split_record(s, fields, '|') == -1)
-    return NULL;
-
-  struct RecordObject *objp = calloc(1, sizeof(*objp));
-  if (objp == NULL) {
-    return NULL;
-  }
+    return -1;
 
   field = NONE;
 
-  if (parse_file_type(fields[0], &objp->file_type) == -1) {
+  if (parse_file_type(fields[0], &self->file_type) == -1) {
     field = FILE_TYPE;
-    return objp;
+    return -1;
   }
 
-  if (parse_perm(fields[1], &objp->perm) == -1) {
+  if (parse_perm(fields[1], &self->perm) == -1) {
     field = PERMISSIONS;
-    return objp;
+    return -1;
   }
 
-  if (parse_uintmax(fields[2], &objp->uid) == -1) {
+  if (parse_uintmax(fields[2], &self->uid) == -1) {
     field = UID;
-    return objp;
+    return -1;
   }
 
-  if (parse_uintmax(fields[3], &objp->gid) == -1) {
+  if (parse_uintmax(fields[3], &self->gid) == -1) {
     field = GID;
-    return objp;
+    return -1;
   }
 
-  if (parse_intmax_nonnegative(fields[4], &objp->size) == -1) {
+  if (parse_intmax_nonnegative(fields[4], &self->size) == -1) {
     field = SIZE;
-    return objp;
+    return -1;
   }
 
-  if (parse_intmax_nonnegative(fields[5], &objp->time) == -1) {
+  if (parse_intmax_nonnegative(fields[5], &self->time) == -1) {
     field = TIME;
-    return objp;
+    return -1;
   }
 
   errno = 0;
@@ -229,22 +236,21 @@ struct RecordObject *unpack(char *s) {
   if (target == NULL) {
     if (errno == EINVAL) {
       field = TARGET;
-      return objp;
+      return -1;
     }
-    release(objp);
-    return NULL;
+    return -1;
   }
 
-  objp->target = target;
+  self->target = target;
 
-  if (parse_uintmax(fields[7], &objp->fingerprint) == -1) {
+  if (parse_uintmax(fields[7], &self->fingerprint) == -1) {
     field = FINGERPRINT;
-    return objp;
+    return -1;
   }
 
   if (fields[8][0] == '\0') {
     field = PATH;
-    return objp;
+    return -1;
   }
 
   errno = 0;
@@ -252,30 +258,91 @@ struct RecordObject *unpack(char *s) {
   if (path == NULL) {
     if (errno == EINVAL) {
       field = PATH;
-      return objp;
+      return -1;
     }
-    release(objp);
-    return NULL;
+    return -1;
   }
 
-  objp->path = path;
+  self->path = path;
 
-  return objp;
+  return 0;
 }
 
-int release(struct RecordObject *obj) {
-  if (obj == NULL) {
-    return 0;
-  }
-  if (obj->path != NULL) {
-    free(obj->path);
-    obj->path = NULL;
-  }
-  if (obj->target != NULL) {
-    free(obj->target);
-    obj->target = NULL;
+int Compare(struct RecordObject *self, struct RecordObject *other) {
+  field = NONE;
+
+  if (self == NULL)
+    return 128;
+  if (other == NULL)
+    return 1;
+
+  int exit_code = 0;
+  if (self->file_type != other->file_type) {
+    exit_code = ((int)(self->file_type - other->file_type));
+    field = FILE_TYPE;
+  } else if (self->perm != other->perm) {
+    exit_code = ((int)(self->perm - other->perm));
+    field = PERMISSIONS;
+  } else if (self->uid != other->uid) {
+    exit_code = ((int)(self->uid - other->uid));
+    field = UID;
+  } else if (self->gid != other->gid) {
+    exit_code = ((int)(self->gid - other->gid));
+    field = GID;
+  } else if (self->size != other->size) {
+    exit_code = ((int)(self->size - other->size));
+    field = SIZE;
+  } else if (self->time != other->time) {
+    exit_code = ((int)(self->time - other->time));
+    field = TIME;
+  } else if (self->fingerprint != other->fingerprint) {
+    exit_code = ((int)(self->fingerprint - other->fingerprint));
+    field = FINGERPRINT;
+  } else {
+    int retp = strcmp(self->path, other->path);
+    if (retp != 0) {
+      exit_code = retp;
+      field = PATH;
+    } else {
+      int rett = strcmp(self->target, other->target);
+      if (rett != 0) {
+        exit_code = rett;
+        field = TARGET;
+      }
+    }
   }
 
-  free(obj);
+  return exit_code;
+}
+
+int Release(struct RecordObject *self) {
+  if (self == NULL) {
+    return 0;
+  }
+  if (self->path != NULL) {
+    free(self->path);
+    self->path = NULL;
+  }
+  if (self->target != NULL) {
+    free(self->target);
+    self->target = NULL;
+  }
+
+  free(self);
   return 0;
+}
+
+// Accessors
+char GetFileType(const struct RecordObject *self) { return self->file_type; }
+unsigned int GetPermissions(const struct RecordObject *self) {
+  return self->perm;
+}
+uintmax_t GetUid(const struct RecordObject *self) { return self->uid; }
+uintmax_t GetGid(const struct RecordObject *self) { return self->gid; }
+intmax_t GetSize(const struct RecordObject *self) { return self->size; }
+intmax_t GetTime(const struct RecordObject *self) { return self->time; }
+const char *GetPath(const struct RecordObject *self) { return self->path; }
+const char *GetTarget(const struct RecordObject *self) { return self->target; }
+uintmax_t GetFingerPrint(const struct RecordObject *self) {
+  return self->fingerprint;
 }
