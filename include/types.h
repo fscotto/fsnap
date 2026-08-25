@@ -2,6 +2,7 @@
 #define TYPE_H
 
 #include <inttypes.h>
+#include <stdio.h>
 
 enum Fields {
   FILE_TYPE,
@@ -25,6 +26,7 @@ struct RecordObject;
 // Methods
 struct RecordObject *NewRecordObject();
 int Unpack(struct RecordObject *, char *);
+int RecordObjectWrite(struct RecordObject *self, const char *path, FILE *out);
 int Compare(struct RecordObject *, struct RecordObject *);
 char GetFileType(const struct RecordObject *);
 unsigned int GetPermissions(const struct RecordObject *);

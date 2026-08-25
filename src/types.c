@@ -1,8 +1,16 @@
+#define _POSIX_C_SOURCE 1
+#define _DEFAULT_SOURCE
+#define _XOPEN_SOURCE 700
+#include "hash.h"
 #include "types.h"
 #include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #define NFIELDS 9
 
@@ -171,6 +179,59 @@ static int parse_intmax_nonnegative(const char *s, intmax_t *out) {
   return 0;
 }
 
+static char file_type(mode_t mode) {
+  if (S_ISREG(mode))
+    return 'F';
+  if (S_ISDIR(mode))
+    return 'D';
+  if (S_ISLNK(mode))
+    return 'L';
+  if (S_ISFIFO(mode))
+    return 'P';
+  if (S_ISCHR(mode))
+    return 'C';
+  if (S_ISBLK(mode))
+    return 'B';
+  if (S_ISSOCK(mode))
+    return 'S';
+
+  return '?';
+}
+
+static char *sanitize_path(const char *path) {
+  size_t len = strlen(path);
+  size_t escapes = 0;
+  for (size_t i = 0; i < len; i++) {
+    if (path[i] == '|' || path[i] == '\\' || path[i] == '\n')
+      escapes++;
+  }
+
+  char *s = calloc(len + escapes + 1, sizeof(char));
+  if (s == NULL)
+    return NULL;
+
+  for (size_t i = 0, j = 0; i < len; i++) {
+    switch (path[i]) {
+    case '\\':
+      s[j++] = '\\';
+      s[j++] = '\\';
+      break;
+    case '|':
+      s[j++] = '\\';
+      s[j++] = '|';
+      break;
+    case '\n':
+      s[j++] = '\\';
+      s[j++] = 'n';
+      break;
+    default:
+      s[j++] = path[i];
+      break;
+    }
+  }
+  return s;
+}
+
 //========================= RecordObject =================================
 
 struct RecordObject {
@@ -315,10 +376,66 @@ int Compare(struct RecordObject *self, struct RecordObject *other) {
   return exit_code;
 }
 
-int Release(struct RecordObject *self) {
-  if (self == NULL) {
-    return 0;
+int RecordObjectWrite(struct RecordObject *self, const char *path, FILE *out) {
+  struct stat st;
+  if (lstat(path, &st) == -1) {
+    return -1;
   }
+
+  self->file_type = file_type(st.st_mode);
+  self->perm = (unsigned int)(st.st_mode & 07777);
+  self->uid = (uintmax_t)st.st_uid;
+  self->gid = (uintmax_t)st.st_gid;
+  self->size = (intmax_t)st.st_size;
+  self->time = (intmax_t)st.st_mtime;
+  char *s = sanitize_path(path);
+  if (s == NULL)
+    return -1;
+  if (self->path != NULL)
+    free(self->path);
+  self->path = s;
+
+  char *target = NULL;
+  if (self->file_type == 'L') {
+    size_t bufsiz = ((size_t)(st.st_size + 1));
+
+    if (st.st_size == 0)
+      bufsiz = (size_t)sysconf(_PC_PATH_MAX);
+
+    target = calloc(bufsiz, sizeof(char));
+    if (target == NULL)
+      return -1;
+
+    if (readlink(path, target, bufsiz) == -1) {
+      free(target);
+      return -1;
+    }
+  }
+  if (self->target != NULL)
+    free(self->target);
+  self->target = target;
+
+  FILE *f = NULL;
+  uint32_t hash = 0;
+  if (!S_ISDIR(st.st_mode)) {
+    if ((f = fopen(path, "r")) == NULL)
+      return -1;
+
+    hash = crc32(f);
+    if (fclose(f) != 0)
+      return -1;
+  }
+  self->fingerprint = hash;
+
+  return fprintf(out, "%c|%04o|%ju|%ju|%jd|%jd|%s|%ju|%s\n", self->file_type,
+                 self->perm, self->uid, self->gid, self->size, self->time,
+                 self->target == NULL ? "" : self->target, self->fingerprint,
+                 self->path);
+}
+
+int Release(struct RecordObject *self) {
+  if (self == NULL)
+    return -1;
   if (self->path != NULL) {
     free(self->path);
     self->path = NULL;
@@ -327,7 +444,6 @@ int Release(struct RecordObject *self) {
     free(self->target);
     self->target = NULL;
   }
-
   free(self);
   return 0;
 }
