@@ -108,7 +108,7 @@ type|permissions|uid|gid|size|time|target|fingerprint|path
 | `size` | Size in bytes, as reported by `lstat` |
 | `time` | Modification time, seconds since the Unix epoch |
 | `target` | Symlink target returned by `readlink`; empty for non-symlink entries |
-| `fingerprint` | CRC32 checksum read through `fopen(path, "r")` for every non-directory entry; `0` for directories |
+| `fingerprint` | CRC32 checksum of the contents, for regular files only; `0` for every other type, including symlinks, whose contents are the `target` field |
 | `path` | Absolute path: the input root is resolved with `realpath`, then child names are appended; it is escaped |
 
 ### Escaping rules
@@ -140,10 +140,10 @@ returns `128` internally; `main` maps it to exit status `1`.
 
 ## Behaviour worth knowing
 
-- **Symlinks are not followed by the walker.** Their metadata comes from
-  `lstat()` and their target is read using `readlink()`. The subsequent
-  fingerprint step opens the symlink target, however, so `create` fails for a
-  broken symlink and fingerprints the referent rather than the link target.
+- **Symlinks are not followed, anywhere.** Their metadata comes from `lstat()`
+  and their target from `readlink()`. Nothing opens the path afterwards, so a
+  symlink is recorded as itself rather than as its referent, and a broken one
+  snapshots like any other.
 - **Paths are absolute.** The input directory is resolved through `realpath()`
   before traversal; snapshots are tied to the machine and location where they
   were taken.
@@ -185,10 +185,11 @@ These are actual, reproduced problems, not hypotheticals:
   is unreadable, the result is an empty snapshot reported as success.
 - **No hard-link or inode information** is recorded, so hard links cannot be
   detected and identical files cannot be correlated.
-- **`create` is unsafe for several non-regular entry types.** It attempts to
-  open every non-directory entry to fingerprint it. A FIFO can block forever;
-  devices, sockets, unreadable files, and broken symlinks can make creation
-  fail.
+- **An unreadable regular file aborts the whole run.** `create` opens every
+  regular file to checksum it, and a failure there stops the walk and leaves no
+  snapshot, even though the same run tolerates a directory it cannot enter.
+  Running `fsnap create /etc` as an ordinary user fails on the first of the 39
+  files it may not read.
 - **Symlink targets are not escaped by the writer.** A target containing `|`, a
   newline, or a backslash can make the generated record unparsable by `list`.
 - **`list` counts the lines in a separate pass over the file.** If the snapshot

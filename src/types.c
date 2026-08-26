@@ -453,8 +453,14 @@ int RecordObjectWrite(struct RecordObject *self, const char *path, FILE *out) {
   self->target = target;
   target = NULL;
 
+  /* Only a regular file has contents worth checksumming, and only a regular
+     file is safe to open: fopen follows symlinks, so a link to a directory
+     fails with EISDIR and a broken one with ENOENT; a FIFO blocks until a
+     writer appears; a socket fails with ENXIO; and opening a device is not
+     something a metadata walk should ever do. A symlink is already fully
+     described by the target field. Everything else keeps fingerprint 0. */
   uint32_t hash = 0;
-  if (!S_ISDIR(st.st_mode)) {
+  if (S_ISREG(st.st_mode)) {
     if ((f = fopen(path, "r")) == NULL)
       goto cleanup;
 
