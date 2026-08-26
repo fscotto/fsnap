@@ -428,15 +428,34 @@ int RecordObjectWrite(struct RecordObject *self, const char *path, FILE *out) {
   if (self->file_type == 'L') {
     size_t bufsiz = ((size_t)(st.st_size + 1));
 
-    if (st.st_size == 0)
-      bufsiz = (size_t)sysconf(_PC_PATH_MAX);
+    /* Some filesystems report st_size 0 for a symlink, so fall back to the
+       longest path the filesystem holding it accepts. pathconf may legitimately
+       report "no limit" as -1 without setting errno, hence the reset. */
+    if (st.st_size == 0) {
+      errno = 0;
+      long limit = pathconf(path, _PC_PATH_MAX);
+      if (limit <= 0) {
+        if (errno != 0)
+          goto cleanup;
+        limit = PATH_MAX;
+      }
+      bufsiz = (size_t)limit;
+    }
 
     target = calloc(bufsiz, sizeof(char));
     if (target == NULL)
       goto cleanup;
 
-    if (readlink(path, target, bufsiz) == -1)
+    /* readlink does not terminate the buffer and silently truncates when the
+       target does not fit, so the length has to be checked, not just -1. */
+    ssize_t n = readlink(path, target, bufsiz);
+    if (n == -1)
       goto cleanup;
+    if ((size_t)n >= bufsiz) {
+      errno = ENAMETOOLONG;
+      goto cleanup;
+    }
+    target[n] = '\0';
   }
   if (self->target != NULL)
     free(self->target);
