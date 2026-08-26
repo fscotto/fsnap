@@ -458,10 +458,9 @@ int RecordObjectWrite(struct RecordObject *self, const char *path, FILE *out) {
     if ((f = fopen(path, "r")) == NULL)
       goto cleanup;
 
-    hash = crc32(f);
-    /* ferror has to be sampled before fclose, but the stream must be closed
-       either way: short-circuiting on ferror would leak it. */
-    const int read_failed = ferror(f);
+    /* The read result has to be captured before fclose, but the stream must be
+       closed either way: short-circuiting on the failure would leak it. */
+    const int read_failed = crc32(f, &hash) == -1;
     const int close_failed = fclose(f) != 0;
     f = NULL;
     if (read_failed || close_failed)

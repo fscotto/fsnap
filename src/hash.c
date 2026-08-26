@@ -34,7 +34,7 @@ static uint32_t crc32_update(uint32_t crc, const uint8_t *data, size_t length) {
   return crc;
 }
 
-uint32_t crc32(FILE *stream) {
+int crc32(FILE *stream, uint32_t *out) {
   uint8_t buffer[BUFFER_SIZE];
   size_t bytes_read;
   uint32_t crc = 0xFFFFFFFF;
@@ -44,7 +44,8 @@ uint32_t crc32(FILE *stream) {
   }
 
   if (ferror(stream))
-    return 0;
+    return -1;
 
-  return crc ^ 0xFFFFFFFF;
+  *out = crc ^ 0xFFFFFFFF;
+  return 0;
 }
