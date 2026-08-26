@@ -40,6 +40,18 @@ make            # produces build/fsnap
 make clean
 ```
 
+`make install` copies the binary to `$(BINDIR)`, which defaults to
+`/usr/local/bin`; `make uninstall` removes it again. Both honour `DESTDIR` for
+staged installs:
+
+```sh
+make install PREFIX=~/.local        # ~/.local/bin/fsnap
+make install DESTDIR=/tmp/stage     # /tmp/stage/usr/local/bin/fsnap
+sudo make install                   # /usr/local/bin/fsnap
+```
+
+`PREFIX`, `BINDIR` and `INSTALL` can all be overridden.
+
 The sources declare no feature test macros of their own; the `Makefile` sets
 `-D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE` for the whole build. Everything
 used behind them — `getline`, `realpath(path, NULL)`, `mkstemp`, `readlink`,
@@ -48,7 +60,7 @@ used behind them — `getline`, `realpath(path, NULL)`, `mkstemp`, `readlink`,
 `dirent.d_type`, used as a fast path only, with an `lstat` fallback for
 `DT_UNKNOWN` as the spec requires.
 
-Only Linux/glibc has been tested. There is no `install` target.
+Only Linux/glibc has been tested.
 
 ## Usage
 
@@ -206,7 +218,6 @@ Rough order of intent, no timeline:
       rather than collapsing them ([SPEC.md](SPEC.md) §18).
 - [ ] Honour `TMPDIR` instead of hardcoding `/tmp`.
 - [ ] Add a test suite and wire it into the `Makefile`.
-- [ ] Add an `install` target.
 
 ## License
 

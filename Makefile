@@ -19,7 +19,15 @@ LDFLAGS :=
 LDLIBS :=
 
 BUILD_DIR := build
-TARGET := $(BUILD_DIR)/fsnap
+NAME := fsnap
+TARGET := $(BUILD_DIR)/$(NAME)
+
+# ?= so a caller can override from the environment or the command line.
+# DESTDIR is deliberately not defaulted: it is empty for a real install and set
+# by a packager staging into a temporary root.
+PREFIX ?= /usr/local
+BINDIR ?= $(PREFIX)/bin
+INSTALL ?= install
 
 SOURCES := \
 	src/main.c \
@@ -35,7 +43,7 @@ SOURCES := \
 OBJECTS := $(SOURCES:%.c=$(BUILD_DIR)/%.o)
 DEPENDENCIES := $(OBJECTS:.o=.d)
 
-.PHONY: all clean run
+.PHONY: all clean run install uninstall
 
 all: $(TARGET)
 
@@ -48,6 +56,13 @@ $(BUILD_DIR)/%.o: %.c
 
 run: $(TARGET)
 	./$(TARGET)
+
+install: $(TARGET)
+	$(INSTALL) -d $(DESTDIR)$(BINDIR)
+	$(INSTALL) -m 755 $(TARGET) $(DESTDIR)$(BINDIR)/$(NAME)
+
+uninstall:
+	rm -f $(DESTDIR)$(BINDIR)/$(NAME)
 
 clean:
 	rm -rf $(BUILD_DIR)
