@@ -1,7 +1,13 @@
 CC := cc
 
 CPPFLAGS := -Iinclude -MMD -MP
-CFLAGS := -std=c11 -Wall -Wextra -Wpedantic -Wconversion -ggdb
+
+# -O2 is not only about speed: without optimisation GCC skips the flow
+# analysis that most of these warnings are derived from.
+WARNINGS := -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Wvla \
+	-Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition \
+	-Wcast-qual -Wwrite-strings -Wdouble-promotion
+CFLAGS := -std=c11 $(WARNINGS) -O2 -ggdb
 LDFLAGS :=
 LDLIBS :=
 
@@ -26,15 +32,12 @@ DEPENDENCIES := $(OBJECTS:.o=.d)
 
 all: $(TARGET)
 
-$(TARGET): $(OBJECTS) | $(BUILD_DIR)
+$(TARGET): $(OBJECTS)
 	$(CC) $(LDFLAGS) $(OBJECTS) $(LDLIBS) -o $@
 
 $(BUILD_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
-
-$(BUILD_DIR):
-	mkdir -p $@
 
 run: $(TARGET)
 	./$(TARGET)

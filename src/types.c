@@ -254,7 +254,7 @@ struct RecordObject {
   uintmax_t fingerprint;
 };
 
-struct RecordObject *RecordObjectNew() {
+struct RecordObject *RecordObjectNew(void) {
   struct RecordObject *ret = calloc(1, sizeof(*ret));
   if (ret == NULL)
     return NULL;

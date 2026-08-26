@@ -8,10 +8,10 @@
 #include <string.h>
 #include <sys/stat.h>
 
-static char *blacklist[] = {".", ".."};
+static const char *const blacklist[] = {".", ".."};
 
 static int ignore_file(const char *name) {
-  for (long unsigned int i = 0; i < sizeof(blacklist) / sizeof(char *); i++) {
+  for (size_t i = 0; i < sizeof(blacklist) / sizeof(blacklist[0]); i++) {
     if (strcmp(name, blacklist[i]) == 0)
       return 1;
   }

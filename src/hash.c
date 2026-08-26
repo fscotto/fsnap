@@ -6,7 +6,7 @@
 static uint32_t crc32_table[256];
 static int table_computed = 0;
 
-static void init_crc32_table() {
+static void init_crc32_table(void) {
   for (uint32_t i = 0; i < 256; i++) {
     uint32_t crc = i;
     for (int j = 0; j < 8; j++) {
