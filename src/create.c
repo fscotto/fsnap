@@ -1,6 +1,3 @@
-#define _POSIX_C_SOURCE 200809L
-#define _DEFAULT_SOURCE
-#define _XOPEN_SOURCE 700
 #include "create.h"
 #include "types.h"
 #include "utility.h"

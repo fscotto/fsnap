@@ -1,4 +1,3 @@
-#define _GNU_SOURCE
 #include "utility.h"
 #include "walk.h"
 #include <dirent.h>

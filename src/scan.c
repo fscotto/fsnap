@@ -1,4 +1,3 @@
-#define _DEFAULT_SOURCE
 #include "scan.h"
 #include "utility.h"
 #include "walk.h"
