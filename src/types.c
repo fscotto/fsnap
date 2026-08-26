@@ -187,6 +187,12 @@ static int cmp_intmax(intmax_t a, intmax_t b) {
   return (a < b) ? -1 : (a > b) ? 1 : 0;
 }
 
+/* A record built by RecordObjectWrite leaves target NULL for anything that is
+   not a symlink, while one built by RecordObjectUnpack always holds a string,
+   empty in that case. Treat the two as the same value instead of handing NULL
+   to strcmp. */
+static const char *or_empty(const char *s) { return (s != NULL) ? s : ""; }
+
 static char file_type(mode_t mode) {
   if (S_ISREG(mode))
     return 'F';
@@ -383,13 +389,13 @@ int RecordObjectCompare(const struct RecordObject *self,
     if (err)
       *err = FINGERPRINT;
   } else {
-    int retp = strcmp(self->path, other->path);
+    int retp = strcmp(or_empty(self->path), or_empty(other->path));
     if (retp != 0) {
       exit_code = retp;
       if (err)
         *err = PATH;
     } else {
-      int rett = strcmp(self->target, other->target);
+      int rett = strcmp(or_empty(self->target), or_empty(other->target));
       if (rett != 0) {
         exit_code = rett;
         if (err)
