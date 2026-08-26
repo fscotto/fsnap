@@ -79,7 +79,11 @@ cleanup:;
   int cleanup_errno = 0;
 
   free(resolved);
-  unlink(template);
+  /* Only mkstemp turns the XXXXXX suffix into a real name. If it failed,
+     template still holds the literal and unlink would target whatever file
+     happens to carry that name. */
+  if (fd != -1)
+    unlink(template);
   if (tmp != NULL && fclose(tmp) != 0)
     cleanup_errno = errno;
 
