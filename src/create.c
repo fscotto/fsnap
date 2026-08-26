@@ -72,12 +72,24 @@ int create(const char *directory, const char *output_file) {
   rc = 0;
 
 cleanup:;
+  /* An error that happened before the cleanup owns errno; one raised by the
+     cleanup itself owns it only when nothing had failed yet. A buffered write
+     can fail for the first time in fclose, so that errno must survive. */
   const int saved_errno = errno;
+  int cleanup_errno = 0;
+
   free(resolved);
   unlink(template);
-  if (tmp != NULL && fclose(tmp) != 0 && rc == 0)
-    rc = -1;
-  if (rc == -1)
+  if (tmp != NULL && fclose(tmp) != 0)
+    cleanup_errno = errno;
+
+  if (rc == -1) {
     errno = saved_errno;
-  return rc;
+    return -1;
+  }
+  if (cleanup_errno != 0) {
+    errno = cleanup_errno;
+    return -1;
+  }
+  return 0;
 }
