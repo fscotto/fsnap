@@ -40,10 +40,12 @@ SOURCES := \
 	src/list.c \
 	src/diff.c
 
+TESTS := tests/run.sh
+
 OBJECTS := $(SOURCES:%.c=$(BUILD_DIR)/%.o)
 DEPENDENCIES := $(OBJECTS:.o=.d)
 
-.PHONY: all clean run install uninstall
+.PHONY: all clean run test install uninstall
 
 all: $(TARGET)
 
@@ -56,6 +58,10 @@ $(BUILD_DIR)/%.o: %.c
 
 run: $(TARGET)
 	./$(TARGET)
+
+# Black-box: the suite drives the built binary, so it needs nothing but sh.
+test: $(TARGET)
+	@FSNAP='$(CURDIR)/$(TARGET)' sh $(TESTS)
 
 install: $(TARGET)
 	$(INSTALL) -d $(DESTDIR)$(BINDIR)

@@ -5,8 +5,8 @@ and records the metadata of everything it finds into a plain-text snapshot file.
 
 > **This is a hobby project. It is not ready for production use.**
 >
-> It is written for learning and for personal use, has no test suite, no stable
-> snapshot format, and no backwards-compatibility guarantees. Do not build a
+> It is written for learning and for personal use, and has no stable snapshot
+> format and no backwards-compatibility guarantees. Do not build a
 > backup or auditing process on top of it. Several rough edges are known and
 > listed under [Known limitations](#known-limitations) — read that section
 > before using it on anything you care about.
@@ -39,6 +39,14 @@ features by choice; on BSD systems use `gmake`).
 make            # produces build/fsnap
 make clean
 ```
+
+`make test` runs the suite in [tests/run.sh](tests/run.sh): 91 black-box checks
+driving the built binary over the tree shapes [SPEC.md](SPEC.md) §22 asks for —
+regular and empty files, nested directories, symlinks, broken symlinks, hard
+links, FIFOs, sockets, unusual filenames and permission errors — plus the
+parser cases from §14 and §15 and the `diff` classifications. It is POSIX sh
+with no dependencies, and skips rather than fails what the environment cannot
+provide.
 
 `make install` copies the binary to `$(BINDIR)`, which defaults to
 `/usr/local/bin`; `make uninstall` removes it again. Both honour `DESTDIR` for
@@ -195,8 +203,6 @@ These are actual, reproduced problems, not hypotheticals:
 - **`list` counts the lines in a separate pass over the file.** If the snapshot
   grows between the counting pass and the parsing pass, the records past the
   original count are silently ignored and `list` still exits `0`.
-- **No test suite.** There is currently no `tests/` directory or automated
-  coverage for the tree shapes listed in [SPEC.md](SPEC.md) §22.
 
 ## Roadmap
 
@@ -218,7 +224,6 @@ Rough order of intent, no timeline:
       filesystem, distinguishing `ENOENT`, `EACCES`, `ENOTDIR` and `ELOOP`
       rather than collapsing them ([SPEC.md](SPEC.md) §18).
 - [ ] Honour `TMPDIR` instead of hardcoding `/tmp`.
-- [ ] Add a test suite and wire it into the `Makefile`.
 
 ## License
 
