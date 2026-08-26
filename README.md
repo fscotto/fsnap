@@ -122,8 +122,9 @@ pathname:
 | `L` | Symlink target is the only differing field after the other compared fields match |
 | `M` | Any other difference, including type, owner, size, time, or fingerprint |
 
-`diff` does not print a line number or field name when an input snapshot is
-malformed; it fails with `EINVAL`.
+`diff` reports a malformed input the way `list` does, as
+`snapshot:line: invalid <field_name>` or `snapshot:line: unparsable line`, and
+returns `128` internally; `main` maps it to exit status `1`.
 
 ## Behaviour worth knowing
 
@@ -154,7 +155,9 @@ malformed; it fails with `EINVAL`.
   rejects out-of-range values (`ERANGE`), negative `uid`/`gid`, and any leading
   whitespace or `+` sign, rather than letting `strtoumax` wrap them.
 - **An empty snapshot is valid.** `create` produces a zero-byte file for an
-  empty directory, and `list` accepts it silently with exit `0`.
+  empty directory, `list` accepts it silently with exit `0`, and `diff` treats
+  it as carrying no records, so every entry on the other side is reported as
+  added or deleted.
 
 ## Known limitations
 
@@ -202,8 +205,7 @@ Rough order of intent, no timeline:
       filesystem, distinguishing `ENOENT`, `EACCES`, `ENOTDIR` and `ELOOP`
       rather than collapsing them ([SPEC.md](SPEC.md) §18).
 - [ ] Honour `TMPDIR` instead of hardcoding `/tmp`.
-- [ ] Add a test suite and wire it into the `Makefile`; build with `-O2` so the
-      compiler's flow analysis is actually enabled.
+- [ ] Add a test suite and wire it into the `Makefile`.
 - [ ] Add an `install` target.
 
 ## License
