@@ -38,8 +38,10 @@ int RecordObjectUnpack(struct RecordObject *self, char *s, enum Fields *err);
 int RecordObjectWrite(struct RecordObject *self, const char *path, FILE *out);
 
 /* Compare two RecordObjects field by field.
-   Returns 0 if equal, a non-zero difference otherwise.
-   On NULL self returns 128, on NULL other returns 1.
+   Returns 0 if equal, and an ordering like strcmp otherwise: negative if self
+   sorts first, positive if other does. On NULL self returns 128 and on NULL
+   other 1; those are ordering sentinels, unrelated to the FSNAP_EPARSE command
+   status that happens to share the value.
    If err is non-NULL, sets *err to the first differing field. */
 int RecordObjectCompare(const struct RecordObject *self,
                         const struct RecordObject *other, enum Fields *err);

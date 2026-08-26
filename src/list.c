@@ -55,7 +55,7 @@ int list(const char *snapshot) {
                 RecordObjectFieldName(err));
       else
         fprintf(stderr, "%s:%d: unparsable line\n", snapshot, i + 1);
-      rc = 128;
+      rc = FSNAP_EPARSE;
       RecordObjectRelease(objp);
       break;
     }

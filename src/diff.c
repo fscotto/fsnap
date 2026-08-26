@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Returns 0 on success, -1 on a system error, 128 on a malformed record. */
+/* Returns 0 on success, -1 on a system error, FSNAP_EPARSE if malformed. */
 static int load_in_memory(const char *file, struct RecordObject ***records,
                           int *count) {
   int rc = -1;
@@ -64,7 +64,7 @@ static int load_in_memory(const char *file, struct RecordObject ***records,
       else
         fprintf(stderr, "%s:%d: unparsable line\n", file, i + 1);
       RecordObjectRelease(objp);
-      rc = 128;
+      rc = FSNAP_EPARSE;
       goto cleanup;
     }
 
