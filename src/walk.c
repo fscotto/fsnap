@@ -51,8 +51,16 @@ int walk(const char *directory, WalkOp op, void *context) {
   char *path = NULL;
   struct dirent *direntp = NULL;
 
-  errno = 0;
-  while ((direntp = readdir(dirp)) != NULL) {
+  for (;;) {
+    /* readdir returns NULL both at end of directory and on error, and is
+       allowed to set errno even when it succeeds. Reset it adjacent to the
+       call, so the test after the loop tells the two apart: resetting at the
+       bottom of the body instead would be skipped by the continue below. */
+    errno = 0;
+    direntp = readdir(dirp);
+    if (direntp == NULL)
+      break;
+
     if (ignore_file(direntp->d_name))
       continue;
 
@@ -87,7 +95,6 @@ int walk(const char *directory, WalkOp op, void *context) {
 
     free(path);
     path = NULL;
-    errno = 0;
   }
 
   if (errno == 0) {
