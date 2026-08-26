@@ -468,11 +468,13 @@ int RecordObjectWrite(struct RecordObject *self, const char *path, FILE *out) {
       goto cleanup;
 
     hash = crc32(f);
-    if (ferror(f) || fclose(f) != 0) {
-      f = NULL;
-      goto cleanup;
-    }
+    /* ferror has to be sampled before fclose, but the stream must be closed
+       either way: short-circuiting on ferror would leak it. */
+    const int read_failed = ferror(f);
+    const int close_failed = fclose(f) != 0;
     f = NULL;
+    if (read_failed || close_failed)
+      goto cleanup;
   }
   self->fingerprint = hash;
 
