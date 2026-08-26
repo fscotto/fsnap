@@ -23,19 +23,28 @@ if [ ! -x "$FSNAP" ]; then
 	exit 2
 fi
 
+# Set by `make valgrind` to a memcheck command line. Running the whole suite
+# under a checker is then just a matter of prefixing every invocation, which is
+# what fsnap() below is for. It stays empty for a plain `make test`.
+VALGRIND=${VALGRIND:-}
+
 # A bug in the walker can make create block forever rather than fail -- opening
 # a FIFO waits for a writer that never comes. Cap every invocation so that turns
 # into a failing test instead of a hung suite. timeout(1) is not in POSIX, so
 # fall back to running unguarded where it is missing.
 if command -v timeout >/dev/null 2>&1; then
-	TIMEOUT="timeout 30"
+	if [ -n "$VALGRIND" ]; then
+		TIMEOUT="timeout 300" # memcheck costs an order of magnitude
+	else
+		TIMEOUT="timeout 30"
+	fi
 else
 	TIMEOUT=""
 fi
 
 fsnap() {
-	# shellcheck disable=SC2086 # deliberate split: TIMEOUT is a command prefix
-	$TIMEOUT "$FSNAP" "$@"
+	# shellcheck disable=SC2086 # deliberate split: both are command prefixes
+	$TIMEOUT $VALGRIND "$FSNAP" "$@"
 }
 
 testno=0

@@ -48,6 +48,11 @@ parser cases from §14 and §15 and the `diff` classifications. It is POSIX sh
 with no dependencies, and skips rather than fails what the environment cannot
 provide.
 
+`make valgrind` runs that same suite with every invocation under memcheck,
+which takes about 25 seconds against a fraction of a second for `make test`. It
+reports a leak or an invalid access as a failed test rather than as a note in
+the output, and exits 2 if valgrind is not installed.
+
 `make install` copies the binary to `$(BINDIR)`, which defaults to
 `/usr/local/bin`; `make uninstall` removes it again. Both honour `DESTDIR` for
 staged installs:

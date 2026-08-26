@@ -45,7 +45,7 @@ TESTS := tests/run.sh
 OBJECTS := $(SOURCES:%.c=$(BUILD_DIR)/%.o)
 DEPENDENCIES := $(OBJECTS:.o=.d)
 
-.PHONY: all clean run test install uninstall
+.PHONY: all clean run test valgrind install uninstall
 
 all: $(TARGET)
 
@@ -62,6 +62,17 @@ run: $(TARGET)
 # Black-box: the suite drives the built binary, so it needs nothing but sh.
 test: $(TARGET)
 	@FSNAP='$(CURDIR)/$(TARGET)' sh $(TESTS)
+
+# The same suite with every invocation under memcheck. -q keeps stderr clean,
+# which matters because several tests compare it; a distinct exit code turns any
+# finding into a failed test rather than a note nobody reads.
+MEMCHECK := valgrind -q --error-exitcode=99 --leak-check=full \
+	--errors-for-leak-kinds=all --track-origins=yes
+
+valgrind: $(TARGET)
+	@command -v valgrind >/dev/null 2>&1 || { \
+		echo 'valgrind is not installed' >&2; exit 2; }
+	@FSNAP='$(CURDIR)/$(TARGET)' VALGRIND='$(MEMCHECK)' sh $(TESTS)
 
 install: $(TARGET)
 	$(INSTALL) -d $(DESTDIR)$(BINDIR)
