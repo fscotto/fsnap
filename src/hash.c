@@ -43,5 +43,8 @@ uint32_t crc32(FILE *stream) {
     crc = crc32_update(crc, buffer, bytes_read);
   }
 
+  if (ferror(stream))
+    return 0;
+
   return crc ^ 0xFFFFFFFF;
 }

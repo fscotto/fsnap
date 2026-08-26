@@ -48,40 +48,39 @@ char *resolve_path(const char *path) {
 }
 
 int copy(const char *src, const char *dst) {
-  FILE *file1 = fopen(src, "r");
-  if (file1 == NULL) {
-    return -1;
-  }
+  int rc = -1;
+  FILE *file1 = NULL;
+  FILE *file2 = NULL;
 
-  FILE *file2 = fopen(dst, "w+");
-  if (file2 == NULL) {
-    fclose(file1);
-    return -1;
-  }
+  file1 = fopen(src, "r");
+  if (file1 == NULL)
+    goto cleanup;
+
+  file2 = fopen(dst, "w+");
+  if (file2 == NULL)
+    goto cleanup;
 
   char buffer[BUFFER_SIZE];
   size_t bytes;
 
   while ((bytes = fread(buffer, 1, sizeof(buffer), file1)) > 0) {
-    if (fwrite(buffer, 1, bytes, file2) != bytes) {
-      fclose(file1);
-      fclose(file2);
-      return -1;
-    }
+    if (fwrite(buffer, 1, bytes, file2) != bytes)
+      goto cleanup;
   }
 
-  if (ferror(file1)) {
-    fclose(file1);
-    fclose(file2);
-    return -1;
-  }
+  if (ferror(file1))
+    goto cleanup;
 
-  int rc = 0;
-  if (fclose(file1) != 0)
-    rc = -1;
-  if (fclose(file2) != 0)
-    rc = -1;
+  rc = 0;
 
+cleanup:;
+  const int saved_errno = errno;
+  if (file1 != NULL && fclose(file1) != 0 && rc == 0)
+    rc = -1;
+  if (file2 != NULL && fclose(file2) != 0 && rc == 0)
+    rc = -1;
+  if (rc == -1)
+    errno = saved_errno;
   return rc;
 }
 
@@ -98,7 +97,6 @@ int count_lines(const char *file) {
     count++;
 
   if (ferror(f)) {
-    /* Capture before the cleanup: free and fclose may both touch errno. */
     const int saved_errno = errno;
     free(buf);
     fclose(f);
@@ -107,8 +105,7 @@ int count_lines(const char *file) {
   }
 
   free(buf);
-  if (fclose(f) != 0) {
+  if (fclose(f) != 0)
     return -1;
-  }
   return count;
 }

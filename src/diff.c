@@ -8,24 +8,24 @@
 #include <string.h>
 
 static int load_in_memory(const char *file, struct RecordObject ***records,
-                          int *count) {
-  int exit_failure = -1;
+                           int *count) {
+  int rc = -1;
   FILE *stream = NULL;
   char *buf = NULL;
 
   if ((stream = fopen(file, "r")) == NULL)
-    goto failure;
+    goto cleanup;
 
   *count = count_lines(file);
   if (*count == 0)
-    goto success;
-  else if (*count < 0)
-    goto failure;
+    goto cleanup;
+  if (*count < 0)
+    goto cleanup;
 
   *records = calloc((size_t)*count, sizeof(**records));
   if (*records == NULL) {
     errno = ENOMEM;
-    goto failure;
+    goto cleanup;
   }
 
   int i = 0;
@@ -34,14 +34,14 @@ static int load_in_memory(const char *file, struct RecordObject ***records,
     struct RecordObject *objp = RecordObjectNew();
     if (objp == NULL) {
       errno = ENOMEM;
-      goto failure;
+      goto cleanup;
     }
 
-    int ret = RecordObjectUnpack(objp, buf);
+    enum Fields err;
+    int ret = RecordObjectUnpack(objp, buf, &err);
     if (ret == -1) {
-      errno = EINVAL;
       RecordObjectRelease(objp);
-      goto failure;
+      goto cleanup;
     }
 
     (*records)[i] = objp;
@@ -49,32 +49,26 @@ static int load_in_memory(const char *file, struct RecordObject ***records,
   }
 
   if (ferror(stream))
-    goto failure;
+    goto cleanup;
 
-success:
+  rc = 0;
+
+cleanup:;
+  const int saved_errno = errno;
   if (stream != NULL)
     fclose(stream);
   if (buf != NULL)
     free(buf);
-
-  return 0;
-
-failure:
-  if (stream != NULL)
-    fclose(stream);
-  if (buf != NULL)
-    free(buf);
-
-  return exit_failure;
+  errno = saved_errno;
+  return rc;
 }
 
-static int dealloc(struct RecordObject **records, int size) {
+static void dealloc(struct RecordObject **records, int size) {
   for (int j = 0; j < size; j++) {
     RecordObjectRelease(records[j]);
     records[j] = NULL;
   }
   free(records);
-  return 0;
 }
 
 static int order_by_path(const void *o1, const void *o2) {
@@ -84,21 +78,17 @@ static int order_by_path(const void *o1, const void *o2) {
 }
 
 int diff(const char *file1, const char *file2) {
-  int exit_failure = -1;
+  int rc = -1;
   struct RecordObject **records1 = NULL;
   struct RecordObject **records2 = NULL;
 
   int len1 = 0;
-  int ret1 = load_in_memory(file1, &records1, &len1);
-  if (ret1 == -1) {
-    goto failure;
-  }
+  if (load_in_memory(file1, &records1, &len1) == -1)
+    goto cleanup;
 
   int len2 = 0;
-  int ret2 = load_in_memory(file2, &records2, &len2);
-  if (ret2 == -1) {
-    goto failure;
-  }
+  if (load_in_memory(file2, &records2, &len2) == -1)
+    goto cleanup;
 
   qsort(records1, (size_t)len1, sizeof(records1[0]), order_by_path);
   qsort(records2, (size_t)len2, sizeof(records2[0]), order_by_path);
@@ -119,24 +109,27 @@ int diff(const char *file1, const char *file2) {
       code = 'A';
       path = RecordObjectPath(r2);
       n++;
-    } else if (RecordObjectCompare(r1, r2) != 0) {
-      switch (field) {
-      case TARGET:
-        code = 'L';
-        break;
-      case PERMISSIONS:
-        code = 'P';
-        break;
-      default:
-        code = 'M';
-        break;
-      }
-      path = RecordObjectPath(r1);
-      m++;
-      n++;
     } else {
-      m++;
-      n++;
+      enum Fields err = NONE;
+      if (RecordObjectCompare(r1, r2, &err) != 0) {
+        switch (err) {
+        case TARGET:
+          code = 'L';
+          break;
+        case PERMISSIONS:
+          code = 'P';
+          break;
+        default:
+          code = 'M';
+          break;
+        }
+        path = RecordObjectPath(r1);
+        m++;
+        n++;
+      } else {
+        m++;
+        n++;
+      }
     }
 
     if (code != 0) {
@@ -156,26 +149,12 @@ int diff(const char *file1, const char *file2) {
     n++;
   }
 
-  if (records1 != NULL) {
+  rc = 0;
+
+cleanup:
+  if (records1 != NULL)
     dealloc(records1, len1);
-    records1 = NULL;
-  }
-  if (records2 != NULL) {
+  if (records2 != NULL)
     dealloc(records2, len2);
-    records2 = NULL;
-  }
-
-  return 0;
-
-failure:
-  if (records1 != NULL) {
-    dealloc(records1, len1);
-    records1 = NULL;
-  }
-  if (records2 != NULL) {
-    dealloc(records2, len2);
-    records2 = NULL;
-  }
-
-  return exit_failure;
+  return rc;
 }

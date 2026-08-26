@@ -14,8 +14,6 @@
 
 #define NFIELDS 9
 
-enum Fields field = NONE;
-
 static const char *field_names[] = {
     "file type", "permissions", "uid",         "gid",  "size",
     "time",      "target",      "fingerprint", "path", "none"};
@@ -255,40 +253,44 @@ struct RecordObject *RecordObjectNew() {
   return ret;
 }
 
-int RecordObjectUnpack(struct RecordObject *self, char *s) {
+int RecordObjectUnpack(struct RecordObject *self, char *s, enum Fields *err) {
   char *fields[NFIELDS];
   if (split_record(s, fields, '|') == -1)
     return -1;
 
-  field = NONE;
-
   if (parse_file_type(fields[0], &self->file_type) == -1) {
-    field = FILE_TYPE;
+    if (err)
+      *err = FILE_TYPE;
     return -1;
   }
 
   if (parse_perm(fields[1], &self->perm) == -1) {
-    field = PERMISSIONS;
+    if (err)
+      *err = PERMISSIONS;
     return -1;
   }
 
   if (parse_uintmax(fields[2], &self->uid) == -1) {
-    field = UID;
+    if (err)
+      *err = UID;
     return -1;
   }
 
   if (parse_uintmax(fields[3], &self->gid) == -1) {
-    field = GID;
+    if (err)
+      *err = GID;
     return -1;
   }
 
   if (parse_intmax_nonnegative(fields[4], &self->size) == -1) {
-    field = SIZE;
+    if (err)
+      *err = SIZE;
     return -1;
   }
 
   if (parse_intmax_nonnegative(fields[5], &self->time) == -1) {
-    field = TIME;
+    if (err)
+      *err = TIME;
     return -1;
   }
 
@@ -296,7 +298,8 @@ int RecordObjectUnpack(struct RecordObject *self, char *s) {
   char *target = unescape_path(fields[6], '|');
   if (target == NULL) {
     if (errno == EINVAL) {
-      field = TARGET;
+      if (err)
+        *err = TARGET;
       return -1;
     }
     return -1;
@@ -305,12 +308,14 @@ int RecordObjectUnpack(struct RecordObject *self, char *s) {
   self->target = target;
 
   if (parse_uintmax(fields[7], &self->fingerprint) == -1) {
-    field = FINGERPRINT;
+    if (err)
+      *err = FINGERPRINT;
     return -1;
   }
 
   if (fields[8][0] == '\0') {
-    field = PATH;
+    if (err)
+      *err = PATH;
     return -1;
   }
 
@@ -318,7 +323,8 @@ int RecordObjectUnpack(struct RecordObject *self, char *s) {
   char *path = unescape_path(fields[8], '|');
   if (path == NULL) {
     if (errno == EINVAL) {
-      field = PATH;
+      if (err)
+        *err = PATH;
       return -1;
     }
     return -1;
@@ -329,9 +335,9 @@ int RecordObjectUnpack(struct RecordObject *self, char *s) {
   return 0;
 }
 
-int RecordObjectCompare(const struct RecordObject *self, const struct RecordObject *other) {
-  field = NONE;
-
+int RecordObjectCompare(const struct RecordObject *self,
+                        const struct RecordObject *other,
+                        enum Fields *err) {
   if (self == NULL)
     return 128;
   if (other == NULL)
@@ -340,35 +346,44 @@ int RecordObjectCompare(const struct RecordObject *self, const struct RecordObje
   int exit_code = 0;
   if (self->file_type != other->file_type) {
     exit_code = ((int)(self->file_type - other->file_type));
-    field = FILE_TYPE;
+    if (err)
+      *err = FILE_TYPE;
   } else if (self->perm != other->perm) {
     exit_code = ((int)(self->perm - other->perm));
-    field = PERMISSIONS;
+    if (err)
+      *err = PERMISSIONS;
   } else if (self->uid != other->uid) {
     exit_code = ((int)(self->uid - other->uid));
-    field = UID;
+    if (err)
+      *err = UID;
   } else if (self->gid != other->gid) {
     exit_code = ((int)(self->gid - other->gid));
-    field = GID;
+    if (err)
+      *err = GID;
   } else if (self->size != other->size) {
     exit_code = ((int)(self->size - other->size));
-    field = SIZE;
+    if (err)
+      *err = SIZE;
   } else if (self->time != other->time) {
     exit_code = ((int)(self->time - other->time));
-    field = TIME;
+    if (err)
+      *err = TIME;
   } else if (self->fingerprint != other->fingerprint) {
     exit_code = ((int)(self->fingerprint - other->fingerprint));
-    field = FINGERPRINT;
+    if (err)
+      *err = FINGERPRINT;
   } else {
     int retp = strcmp(self->path, other->path);
     if (retp != 0) {
       exit_code = retp;
-      field = PATH;
+      if (err)
+        *err = PATH;
     } else {
       int rett = strcmp(self->target, other->target);
       if (rett != 0) {
         exit_code = rett;
-        field = TARGET;
+        if (err)
+          *err = TARGET;
       }
     }
   }
@@ -377,10 +392,14 @@ int RecordObjectCompare(const struct RecordObject *self, const struct RecordObje
 }
 
 int RecordObjectWrite(struct RecordObject *self, const char *path, FILE *out) {
+  int rc = -1;
   struct stat st;
-  if (lstat(path, &st) == -1) {
-    return -1;
-  }
+  char *s = NULL;
+  char *target = NULL;
+  FILE *f = NULL;
+
+  if (lstat(path, &st) == -1)
+    goto cleanup;
 
   self->file_type = file_type(st.st_mode);
   self->perm = (unsigned int)(st.st_mode & 07777);
@@ -388,14 +407,14 @@ int RecordObjectWrite(struct RecordObject *self, const char *path, FILE *out) {
   self->gid = (uintmax_t)st.st_gid;
   self->size = (intmax_t)st.st_size;
   self->time = (intmax_t)st.st_mtime;
-  char *s = sanitize_path(path);
+  s = sanitize_path(path);
   if (s == NULL)
-    return -1;
+    goto cleanup;
   if (self->path != NULL)
     free(self->path);
   self->path = s;
+  s = NULL;
 
-  char *target = NULL;
   if (self->file_type == 'L') {
     size_t bufsiz = ((size_t)(st.st_size + 1));
 
@@ -404,33 +423,43 @@ int RecordObjectWrite(struct RecordObject *self, const char *path, FILE *out) {
 
     target = calloc(bufsiz, sizeof(char));
     if (target == NULL)
-      return -1;
+      goto cleanup;
 
-    if (readlink(path, target, bufsiz) == -1) {
-      free(target);
-      return -1;
-    }
+    if (readlink(path, target, bufsiz) == -1)
+      goto cleanup;
   }
   if (self->target != NULL)
     free(self->target);
   self->target = target;
+  target = NULL;
 
-  FILE *f = NULL;
   uint32_t hash = 0;
   if (!S_ISDIR(st.st_mode)) {
     if ((f = fopen(path, "r")) == NULL)
-      return -1;
+      goto cleanup;
 
     hash = crc32(f);
-    if (fclose(f) != 0)
-      return -1;
+    if (ferror(f) || fclose(f) != 0) {
+      f = NULL;
+      goto cleanup;
+    }
+    f = NULL;
   }
   self->fingerprint = hash;
 
-  return fprintf(out, "%c|%04o|%ju|%ju|%jd|%jd|%s|%ju|%s\n", self->file_type,
-                 self->perm, self->uid, self->gid, self->size, self->time,
-                 self->target == NULL ? "" : self->target, self->fingerprint,
-                 self->path);
+  rc = fprintf(out, "%c|%04o|%ju|%ju|%jd|%jd|%s|%ju|%s\n", self->file_type,
+               self->perm, self->uid, self->gid, self->size, self->time,
+               self->target == NULL ? "" : self->target, self->fingerprint,
+               self->path);
+
+cleanup:
+  if (s != NULL)
+    free(s);
+  if (target != NULL)
+    free(target);
+  if (f != NULL)
+    fclose(f);
+  return rc;
 }
 
 int RecordObjectRelease(struct RecordObject *self) {

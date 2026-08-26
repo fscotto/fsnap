@@ -96,7 +96,9 @@ int walk(const char *directory, WalkOp op, void *context) {
 
 out:
   free(path);
+  const int saved_errno = errno;
   if (closedir(dirp) == -1)
     rc = -1;
+  errno = saved_errno;
   return rc;
 }

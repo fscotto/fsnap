@@ -38,9 +38,11 @@ int list(const char *snapshot) {
       rc = -1;
       goto out;
     }
-    int ret = RecordObjectUnpack(objp, buf);
-    if (field != NONE) {
-      fprintf(stderr, "%s:%d: invalid %s\n", snapshot, i + 1, RecordObjectFieldName(field));
+    enum Fields err = NONE;
+    int ret = RecordObjectUnpack(objp, buf, &err);
+    if (err != NONE) {
+      fprintf(stderr, "%s:%d: invalid %s\n", snapshot, i + 1,
+              RecordObjectFieldName(err));
       rc = 128;
       RecordObjectRelease(objp);
       break;

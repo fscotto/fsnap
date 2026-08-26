@@ -39,50 +39,44 @@ int create(const char *directory, const char *output_file) {
     return -1;
   }
 
-  char *resolved = resolve_path(directory);
-  if (resolved == NULL) {
-    return -1;
-  }
-
-  int rc = 0;
+  int rc = -1;
+  char *resolved = NULL;
   char template[] = "/tmp/snapshot_XXXXXX";
-  int fd = mkstemp(template);
-  if (fd == -1) {
-    free(resolved);
-    return -1;
-  }
+  int fd = -1;
+  FILE *tmp = NULL;
 
-  FILE *tmp = fdopen(fd, "w+");
+  resolved = resolve_path(directory);
+  if (resolved == NULL)
+    goto cleanup;
+
+  fd = mkstemp(template);
+  if (fd == -1)
+    goto cleanup;
+
+  tmp = fdopen(fd, "w+");
   if (tmp == NULL) {
     close(fd);
-    rc = -1;
-    goto out;
+    goto cleanup;
   }
 
-  if (walk(resolved, write_record, (void *)tmp) == -1) {
-    rc = -1;
-    goto out;
-  }
+  if (walk(resolved, write_record, (void *)tmp) == -1)
+    goto cleanup;
 
-  if (fflush(tmp) == EOF) {
-    rc = -1;
-    goto out;
-  }
+  if (fflush(tmp) == EOF)
+    goto cleanup;
 
   /* FIXME: It doesn't atomic copy, using rename */
-  if (copy(template, output_file) == -1) {
-    rc = -1;
-    goto out;
-  }
+  if (copy(template, output_file) == -1)
+    goto cleanup;
 
-out:;
-  /* A buffered write can fail for the first time here, so fclose owns errno
-     when nothing had failed before it. */
+  rc = 0;
+
+cleanup:;
   const int saved_errno = errno;
   free(resolved);
   unlink(template);
   if (tmp != NULL && fclose(tmp) != 0 && rc == 0)
-    return -1;
+    rc = -1;
   if (rc == -1)
     errno = saved_errno;
   return rc;

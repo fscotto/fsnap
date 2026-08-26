@@ -17,26 +17,41 @@ enum Fields {
   NONE,
 };
 
-extern enum Fields field;
-
 const char *RecordObjectFieldName(enum Fields f);
 
 struct RecordObject;
 
-/* Methods */
-struct RecordObject *RecordObjectNew();
-int RecordObjectUnpack(struct RecordObject *, char *);
+/* Allocate a new RecordObject. Returns NULL on allocation failure. */
+struct RecordObject *RecordObjectNew(void);
+
+/* Unpack a pipe-delimited record string into self.
+   Returns 0 on success, -1 on failure. If err is non-NULL, sets *err to
+   the field that failed to parse. */
+int RecordObjectUnpack(struct RecordObject *self, char *s, enum Fields *err);
+
+/* Populate self by stat-ing the file at path and writing to out.
+   Returns the number of bytes written on success, -1 on failure. */
 int RecordObjectWrite(struct RecordObject *self, const char *path, FILE *out);
-int RecordObjectCompare(const struct RecordObject *, const struct RecordObject *);
-char RecordObjectFileType(const struct RecordObject *);
-unsigned int RecordObjectPermissions(const struct RecordObject *);
-uintmax_t RecordObjectUid(const struct RecordObject *);
-uintmax_t RecordObjectGid(const struct RecordObject *);
-intmax_t RecordObjectSize(const struct RecordObject *);
-intmax_t RecordObjectTime(const struct RecordObject *);
-const char *RecordObjectPath(const struct RecordObject *);
-const char *RecordObjectTarget(const struct RecordObject *);
-uintmax_t RecordObjectFingerPrint(const struct RecordObject *);
-int RecordObjectRelease(struct RecordObject *);
+
+/* Compare two RecordObjects field by field.
+   Returns 0 if equal, a non-zero difference otherwise.
+   On NULL self returns 128, on NULL other returns 1.
+   If err is non-NULL, sets *err to the first differing field. */
+int RecordObjectCompare(const struct RecordObject *self,
+                        const struct RecordObject *other, enum Fields *err);
+
+/* Accessors */
+char RecordObjectFileType(const struct RecordObject *self);
+unsigned int RecordObjectPermissions(const struct RecordObject *self);
+uintmax_t RecordObjectUid(const struct RecordObject *self);
+uintmax_t RecordObjectGid(const struct RecordObject *self);
+intmax_t RecordObjectSize(const struct RecordObject *self);
+intmax_t RecordObjectTime(const struct RecordObject *self);
+const char *RecordObjectPath(const struct RecordObject *self);
+const char *RecordObjectTarget(const struct RecordObject *self);
+uintmax_t RecordObjectFingerPrint(const struct RecordObject *self);
+
+/* Free self and all owned resources. Returns 0, or -1 if self is NULL. */
+int RecordObjectRelease(struct RecordObject *self);
 
 #endif
