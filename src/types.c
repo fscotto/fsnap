@@ -177,6 +177,16 @@ static int parse_intmax_nonnegative(const char *s, intmax_t *out) {
   return 0;
 }
 
+/* Comparing by subtracting truncates once the difference leaves the range of
+   int, which can make two different values look equal. Compare instead. */
+static int cmp_uintmax(uintmax_t a, uintmax_t b) {
+  return (a < b) ? -1 : (a > b) ? 1 : 0;
+}
+
+static int cmp_intmax(intmax_t a, intmax_t b) {
+  return (a < b) ? -1 : (a > b) ? 1 : 0;
+}
+
 static char file_type(mode_t mode) {
   if (S_ISREG(mode))
     return 'F';
@@ -345,31 +355,31 @@ int RecordObjectCompare(const struct RecordObject *self,
 
   int exit_code = 0;
   if (self->file_type != other->file_type) {
-    exit_code = ((int)(self->file_type - other->file_type));
+    exit_code = cmp_intmax(self->file_type, other->file_type);
     if (err)
       *err = FILE_TYPE;
   } else if (self->perm != other->perm) {
-    exit_code = ((int)(self->perm - other->perm));
+    exit_code = cmp_uintmax(self->perm, other->perm);
     if (err)
       *err = PERMISSIONS;
   } else if (self->uid != other->uid) {
-    exit_code = ((int)(self->uid - other->uid));
+    exit_code = cmp_uintmax(self->uid, other->uid);
     if (err)
       *err = UID;
   } else if (self->gid != other->gid) {
-    exit_code = ((int)(self->gid - other->gid));
+    exit_code = cmp_uintmax(self->gid, other->gid);
     if (err)
       *err = GID;
   } else if (self->size != other->size) {
-    exit_code = ((int)(self->size - other->size));
+    exit_code = cmp_intmax(self->size, other->size);
     if (err)
       *err = SIZE;
   } else if (self->time != other->time) {
-    exit_code = ((int)(self->time - other->time));
+    exit_code = cmp_intmax(self->time, other->time);
     if (err)
       *err = TIME;
   } else if (self->fingerprint != other->fingerprint) {
-    exit_code = ((int)(self->fingerprint - other->fingerprint));
+    exit_code = cmp_uintmax(self->fingerprint, other->fingerprint);
     if (err)
       *err = FINGERPRINT;
   } else {
