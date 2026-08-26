@@ -40,15 +40,15 @@ make            # produces build/fsnap
 make clean
 ```
 
-The code targets Linux/glibc: it relies on `dirent.d_type`, `realpath(path, NULL)`,
-`mkstemp`, and a few `_GNU_SOURCE` extensions. There is no `install` target.
+The sources declare no feature test macros of their own; the `Makefile` sets
+`-D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE` for the whole build. Everything
+used behind them — `getline`, `realpath(path, NULL)`, `mkstemp`, `readlink`,
+`pathconf` — is POSIX.1-2008, so nothing here requires `_GNU_SOURCE`, which
+[SPEC.md](SPEC.md) §19 asks the project to avoid. `_DEFAULT_SOURCE` is there for
+`dirent.d_type`, used as a fast path only, with an `lstat` fallback for
+`DT_UNKNOWN` as the spec requires.
 
-[SPEC.md](SPEC.md) §19 aims wider than that — Linux *and* NetBSD, POSIX
-interfaces over Linux-specific ones. The gap is `_GNU_SOURCE`, which the sources
-declare per-file; the interfaces actually used behind it (`getline`, `realpath`
-with a `NULL` buffer) are POSIX.1-2008 and would be reachable through
-`_POSIX_C_SOURCE 200809L`. `dirent.d_type` is used as a fast path only, with an
-`lstat` fallback for `DT_UNKNOWN`, as the spec requires.
+Only Linux/glibc has been tested. There is no `install` target.
 
 ## Usage
 
