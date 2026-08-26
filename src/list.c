@@ -2,10 +2,8 @@
 #include "types.h"
 #include "utility.h"
 #include <errno.h>
-#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 int list(const char *snapshot) {
   FILE *snapshot_file = fopen(snapshot, "r");

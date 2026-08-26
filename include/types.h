@@ -57,7 +57,7 @@ const char *RecordObjectPath(const struct RecordObject *self);
 const char *RecordObjectTarget(const struct RecordObject *self);
 uintmax_t RecordObjectFingerPrint(const struct RecordObject *self);
 
-/* Free self and all owned resources. Returns 0, or -1 if self is NULL. */
-int RecordObjectRelease(struct RecordObject *self);
+/* Free self and all owned resources. Does nothing if self is NULL. */
+void RecordObjectRelease(struct RecordObject *self);
 
 #endif

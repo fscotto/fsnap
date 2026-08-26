@@ -10,8 +10,8 @@
 char *strconcat(const char *src, int n, ...) {
   va_list ap;
 
-  /* First pass: total length. strcat never reallocates, so the buffer has to
-     be sized up front. */
+  /* First pass: total length. The result is one allocation, so it has to be
+     sized before anything is copied into it. */
   size_t len = strlen(src);
   va_start(ap, n);
   for (int i = 0; i < n; i++) {
@@ -55,7 +55,7 @@ int copy(const char *src, const char *dst) {
   if (file1 == NULL)
     goto cleanup;
 
-  file2 = fopen(dst, "w+");
+  file2 = fopen(dst, "w");
   if (file2 == NULL)
     goto cleanup;
 

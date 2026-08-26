@@ -3,7 +3,6 @@
 #include "utility.h"
 #include "walk.h"
 #include <errno.h>
-#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,11 +26,11 @@ static int write_record(const char *path, void *context) {
 }
 
 int create(const char *directory, const char *output_file) {
-  if (directory == NULL || strlen(directory) == 0) {
+  if (directory == NULL || directory[0] == '\0') {
     errno = EINVAL;
     return -1;
   }
-  if (output_file == NULL || strlen(output_file) == 0) {
+  if (output_file == NULL || output_file[0] == '\0') {
     errno = EINVAL;
     return -1;
   }

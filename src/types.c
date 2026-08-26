@@ -16,7 +16,9 @@ static const char *field_names[] = {
     "time",      "target",      "fingerprint", "path", "none"};
 
 const char *RecordObjectFieldName(enum Fields f) {
-  return (f <= NONE) ? field_names[f] : "unknown";
+  /* The underlying type of an enum is the compiler's choice, so guard the
+     low side too: as unsigned, a negative value wraps past NONE. */
+  return ((unsigned)f <= NONE) ? field_names[f] : "unknown";
 }
 
 /*======================= static functions ===================================*/
@@ -38,7 +40,7 @@ static int split_record(char *line, char *fields[NFIELDS], char delim) {
   }
 
   /* Only the path may contain an escaped delimiter, and it is the last field,
-     so the six separators found above are always the real ones. Validating
+     so the separators found above are always the real ones. Validating
      what is left is the unescaper's job. */
   fields[NFIELDS - 1] = p;
 
@@ -411,8 +413,7 @@ int RecordObjectWrite(struct RecordObject *self, const char *path, FILE *out) {
   s = sanitize_path(path);
   if (s == NULL)
     goto cleanup;
-  if (self->path != NULL)
-    free(self->path);
+  free(self->path);
   self->path = s;
   s = NULL;
 
@@ -448,8 +449,7 @@ int RecordObjectWrite(struct RecordObject *self, const char *path, FILE *out) {
     }
     target[n] = '\0';
   }
-  if (self->target != NULL)
-    free(self->target);
+  free(self->target);
   self->target = target;
   target = NULL;
 
@@ -474,28 +474,19 @@ int RecordObjectWrite(struct RecordObject *self, const char *path, FILE *out) {
                self->path);
 
 cleanup:
-  if (s != NULL)
-    free(s);
-  if (target != NULL)
-    free(target);
+  free(s);
+  free(target);
   if (f != NULL)
     fclose(f);
   return rc;
 }
 
-int RecordObjectRelease(struct RecordObject *self) {
+void RecordObjectRelease(struct RecordObject *self) {
   if (self == NULL)
-    return -1;
-  if (self->path != NULL) {
-    free(self->path);
-    self->path = NULL;
-  }
-  if (self->target != NULL) {
-    free(self->target);
-    self->target = NULL;
-  }
+    return;
+  free(self->path);
+  free(self->target);
   free(self);
-  return 0;
 }
 
 /* Accessors */

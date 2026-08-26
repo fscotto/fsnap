@@ -4,7 +4,6 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 static int print_file(const char *file, void *context) {
   (void)context;
@@ -13,7 +12,7 @@ static int print_file(const char *file, void *context) {
 
 /* Scan recursively directory, printing all entry */
 int scan(const char *directory) {
-  if (directory == NULL || strlen(directory) == 0) {
+  if (directory == NULL || directory[0] == '\0') {
     errno = EINVAL;
     return -1;
   }
