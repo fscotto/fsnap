@@ -108,7 +108,7 @@ type|permissions|uid|gid|size|time|target|fingerprint|path
 | `size` | Size in bytes, as reported by `lstat` |
 | `time` | Modification time, seconds since the Unix epoch |
 | `target` | Symlink target returned by `readlink`; empty for non-symlink entries |
-| `fingerprint` | CRC32 checksum of the contents, for regular files only; `0` for every other type, including symlinks, whose contents are the `target` field |
+| `fingerprint` | CRC32 of the contents for a regular file, and of the target string for a symlink, which is what the link holds. `0` for a directory and for the types that cannot be read at all (FIFO, socket, device) |
 | `path` | Absolute path: the input root is resolved with `realpath`, then child names are appended; it is escaped |
 
 ### Escaping rules
@@ -131,7 +131,7 @@ pathname:
 | `A` | Present only in the new snapshot |
 | `D` | Present only in the old snapshot |
 | `P` | Permissions are the first differing field |
-| `L` | Symlink target is the only differing field after the other compared fields match |
+| `L` | The symlink target changed. Checked before the fingerprint, which for a link is derived from the target, so the specific answer wins over the generic one |
 | `M` | Any other difference, including type, owner, size, time, or fingerprint |
 
 `diff` reports a malformed input the way `list` does, as
@@ -140,10 +140,10 @@ returns `128` internally; `main` maps it to exit status `1`.
 
 ## Behaviour worth knowing
 
-- **Symlinks are not followed, anywhere.** Their metadata comes from `lstat()`
-  and their target from `readlink()`. Nothing opens the path afterwards, so a
-  symlink is recorded as itself rather than as its referent, and a broken one
-  snapshots like any other.
+- **Symlinks are not followed, anywhere.** Their metadata comes from `lstat()`,
+  their target from `readlink()`, and their fingerprint from that target string
+  rather than from whatever it points at. Nothing opens the path, so a link to a
+  directory and a broken link both snapshot like any other entry.
 - **Paths are absolute.** The input directory is resolved through `realpath()`
   before traversal; snapshots are tied to the machine and location where they
   were taken.

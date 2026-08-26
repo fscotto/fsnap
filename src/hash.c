@@ -21,7 +21,8 @@ static void init_crc32_table(void) {
   table_computed = 1;
 }
 
-static uint32_t crc32_update(uint32_t crc, const uint8_t *data, size_t length) {
+static uint32_t crc32_update(uint32_t crc, const void *bytes, size_t length) {
+  const uint8_t *data = bytes;
   if (!table_computed) {
     init_crc32_table();
   }
@@ -32,6 +33,10 @@ static uint32_t crc32_update(uint32_t crc, const uint8_t *data, size_t length) {
   }
 
   return crc;
+}
+
+uint32_t crc32_buffer(const void *data, size_t length) {
+  return crc32_update(0xFFFFFFFF, data, length) ^ 0xFFFFFFFF;
 }
 
 int crc32(FILE *stream, uint32_t *out) {

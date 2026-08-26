@@ -346,6 +346,9 @@ int RecordObjectCompare(const struct RecordObject *self,
   if (other == NULL)
     return 1;
 
+  const int target_cmp =
+      strcmp(or_empty(self->target), or_empty(other->target));
+
   int exit_code = 0;
   if (self->file_type != other->file_type) {
     exit_code = cmp_intmax(self->file_type, other->file_type);
@@ -371,6 +374,14 @@ int RecordObjectCompare(const struct RecordObject *self,
     exit_code = cmp_intmax(self->time, other->time);
     if (err)
       *err = TIME;
+  } else if (target_cmp != 0) {
+    /* Checked before the fingerprint, which for a symlink is derived from this
+       very string: comparing the other way round would answer "the checksum
+       changed" when the specific and useful answer is "the target changed".
+       The fields are now compared in the order the record stores them. */
+    exit_code = target_cmp;
+    if (err)
+      *err = TARGET;
   } else if (self->fingerprint != other->fingerprint) {
     exit_code = cmp_uintmax(self->fingerprint, other->fingerprint);
     if (err)
@@ -381,13 +392,6 @@ int RecordObjectCompare(const struct RecordObject *self,
       exit_code = retp;
       if (err)
         *err = PATH;
-    } else {
-      int rett = strcmp(or_empty(self->target), or_empty(other->target));
-      if (rett != 0) {
-        exit_code = rett;
-        if (err)
-          *err = TARGET;
-      }
     }
   }
 
@@ -453,14 +457,17 @@ int RecordObjectWrite(struct RecordObject *self, const char *path, FILE *out) {
   self->target = target;
   target = NULL;
 
-  /* Only a regular file has contents worth checksumming, and only a regular
-     file is safe to open: fopen follows symlinks, so a link to a directory
-     fails with EISDIR and a broken one with ENOENT; a FIFO blocks until a
-     writer appears; a socket fails with ENXIO; and opening a device is not
-     something a metadata walk should ever do. A symlink is already fully
-     described by the target field. Everything else keeps fingerprint 0. */
+  /* A regular file is checksummed by reading it. A symlink is checksummed over
+     the target string, which is what the link actually holds: opening the path
+     instead would follow it, and a link to a directory then fails with EISDIR,
+     a broken one with ENOENT. Directories have no contents to speak of, and
+     the remaining types cannot be read at all -- a FIFO blocks until a writer
+     appears, a socket fails with ENXIO, and opening a device is not something
+     a metadata walk should ever do -- so all of those keep 0. */
   uint32_t hash = 0;
-  if (S_ISREG(st.st_mode)) {
+  if (S_ISLNK(st.st_mode)) {
+    hash = crc32_buffer(self->target, strlen(self->target));
+  } else if (S_ISREG(st.st_mode)) {
     if ((f = fopen(path, "r")) == NULL)
       goto cleanup;
 
