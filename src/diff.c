@@ -7,8 +7,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Returns 0 on success, -1 on a system error, 128 on a malformed record. */
 static int load_in_memory(const char *file, struct RecordObject ***records,
-                           int *count) {
+                          int *count) {
   int rc = -1;
   FILE *stream = NULL;
   char *buf = NULL;
@@ -17,10 +18,17 @@ static int load_in_memory(const char *file, struct RecordObject ***records,
     goto cleanup;
 
   *count = count_lines(file);
-  if (*count == 0)
-    goto cleanup;
   if (*count < 0)
     goto cleanup;
+
+  /* An empty snapshot is a valid one: create() produces it for an empty
+     directory and list() accepts it. It simply carries no records, so every
+     record in the other snapshot is an addition or a deletion. calloc(0, ..)
+     may legitimately return NULL, hence the early return. */
+  if (*count == 0) {
+    rc = 0;
+    goto cleanup;
+  }
 
   *records = calloc((size_t)*count, sizeof(**records));
   if (*records == NULL) {
@@ -37,10 +45,19 @@ static int load_in_memory(const char *file, struct RecordObject ***records,
       goto cleanup;
     }
 
-    enum Fields err;
+    enum Fields err = NONE;
     int ret = RecordObjectUnpack(objp, buf, &err);
     if (ret == -1) {
+      /* Same diagnostic shape as list(): identify the snapshot, the line and
+         the offending field. A malformed record is not a system error, so it
+         gets its own status and main() leaves errno alone. */
+      if (err != NONE)
+        fprintf(stderr, "%s:%d: invalid %s\n", file, i + 1,
+                RecordObjectFieldName(err));
+      else
+        fprintf(stderr, "%s:%d: unparsable line\n", file, i + 1);
       RecordObjectRelease(objp);
+      rc = 128;
       goto cleanup;
     }
 
@@ -57,8 +74,7 @@ cleanup:;
   const int saved_errno = errno;
   if (stream != NULL)
     fclose(stream);
-  if (buf != NULL)
-    free(buf);
+  free(buf);
   errno = saved_errno;
   return rc;
 }
@@ -83,15 +99,17 @@ int diff(const char *file1, const char *file2) {
   struct RecordObject **records2 = NULL;
 
   int len1 = 0;
-  if (load_in_memory(file1, &records1, &len1) == -1)
+  if ((rc = load_in_memory(file1, &records1, &len1)) != 0)
     goto cleanup;
 
   int len2 = 0;
-  if (load_in_memory(file2, &records2, &len2) == -1)
+  if ((rc = load_in_memory(file2, &records2, &len2)) != 0)
     goto cleanup;
 
-  qsort(records1, (size_t)len1, sizeof(records1[0]), order_by_path);
-  qsort(records2, (size_t)len2, sizeof(records2[0]), order_by_path);
+  if (records1 != NULL)
+    qsort(records1, (size_t)len1, sizeof(records1[0]), order_by_path);
+  if (records2 != NULL)
+    qsort(records2, (size_t)len2, sizeof(records2[0]), order_by_path);
 
   int m = 0, n = 0;
   while (m < len1 && n < len2) {
@@ -147,6 +165,13 @@ int diff(const char *file1, const char *file2) {
     const struct RecordObject *r = records2[n];
     fprintf(stdout, "A\t%s\n", RecordObjectPath(r));
     n++;
+  }
+
+  /* stdout is block-buffered when redirected, so a write error can surface
+     only here. */
+  if (fflush(stdout) == EOF) {
+    rc = -1;
+    goto cleanup;
   }
 
   rc = 0;
