@@ -29,6 +29,7 @@ int list(const char *snapshot) {
   size_t size = 0;
   records = calloc((size_t)arr_size, sizeof(*records));
   if (records == NULL) {
+    errno = ENOMEM;
     rc = -1;
     goto out;
   }
@@ -39,19 +40,24 @@ int list(const char *snapshot) {
       goto out;
     }
     enum Fields err = NONE;
+    errno = 0;
     int ret = RecordObjectUnpack(objp, buf, &err);
-    if (err != NONE) {
-      fprintf(stderr, "%s:%d: invalid %s\n", snapshot, i + 1,
-              RecordObjectFieldName(err));
-      rc = 128;
-      RecordObjectRelease(objp);
-      break;
-    }
-
     if (ret == -1) {
-      fprintf(stderr, "%s:%d: unparsable line\n", snapshot, i + 1);
-      RecordObjectRelease(objp);
+      /* A failed allocation inside the parser is not a malformed record and
+         must not be reported as one; errno tells them apart. */
+      if (errno != EINVAL) {
+        rc = -1;
+        RecordObjectRelease(objp);
+        goto out;
+      }
+
+      if (err != NONE)
+        fprintf(stderr, "%s:%d: invalid %s\n", snapshot, i + 1,
+                RecordObjectFieldName(err));
+      else
+        fprintf(stderr, "%s:%d: unparsable line\n", snapshot, i + 1);
       rc = 128;
+      RecordObjectRelease(objp);
       break;
     }
 

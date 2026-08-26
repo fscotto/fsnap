@@ -21,12 +21,16 @@ const char *RecordObjectFieldName(enum Fields f);
 
 struct RecordObject;
 
-/* Allocate a new RecordObject. Returns NULL on allocation failure. */
+/* Allocate a new RecordObject. Returns NULL on allocation failure,
+   with errno set to ENOMEM. */
 struct RecordObject *RecordObjectNew(void);
 
 /* Unpack a pipe-delimited record string into self.
-   Returns 0 on success, -1 on failure. If err is non-NULL, sets *err to
-   the field that failed to parse. */
+   Returns 0 on success, -1 on failure. On failure errno is EINVAL when the
+   record is malformed and something else, ENOMEM in practice, when the
+   failure is the parser's own; only in the first case is *err meaningful.
+   If err is non-NULL and the offending field could be identified, sets *err
+   to that field. */
 int RecordObjectUnpack(struct RecordObject *self, char *s, enum Fields *err);
 
 /* Populate self by stat-ing the file at path and writing to out.

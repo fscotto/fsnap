@@ -46,8 +46,16 @@ static int load_in_memory(const char *file, struct RecordObject ***records,
     }
 
     enum Fields err = NONE;
+    errno = 0;
     int ret = RecordObjectUnpack(objp, buf, &err);
     if (ret == -1) {
+      /* A failed allocation inside the parser is not a malformed record and
+         must not be reported as one; errno tells them apart. */
+      if (errno != EINVAL) {
+        RecordObjectRelease(objp);
+        goto cleanup;
+      }
+
       /* Same diagnostic shape as list(): identify the snapshot, the line and
          the offending field. A malformed record is not a system error, so it
          gets its own status and main() leaves errno alone. */

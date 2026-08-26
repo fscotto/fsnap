@@ -56,8 +56,10 @@ static char *unescape_path(const char *s, char delim) {
   const size_t len = strlen(s);
 
   char *out = calloc(len + 1, sizeof(char));
-  if (out == NULL)
+  if (out == NULL) {
+    errno = ENOMEM;
     return NULL;
+  }
 
   size_t j = 0;
   for (size_t i = 0; i < len; i++) {
@@ -262,87 +264,73 @@ struct RecordObject {
 
 struct RecordObject *RecordObjectNew(void) {
   struct RecordObject *ret = calloc(1, sizeof(*ret));
-  if (ret == NULL)
+  if (ret == NULL) {
+    /* calloc is not required to set errno, and callers report failure
+       through it. */
+    errno = ENOMEM;
     return NULL;
-  ret->path = NULL;
-  ret->target = NULL;
+  }
   return ret;
+}
+
+/* Two kinds of failure share the -1 return: a malformed record, which is the
+   input's fault, and an allocation failure, which is not. They are told apart
+   by errno, EINVAL for the former, so callers can report a parse error without
+   swallowing an out-of-memory condition. */
+static int malformed(enum Fields *err, enum Fields field) {
+  if (err)
+    *err = field;
+  errno = EINVAL;
+  return -1;
 }
 
 int RecordObjectUnpack(struct RecordObject *self, char *s, enum Fields *err) {
   char *fields[NFIELDS];
-  if (split_record(s, fields, '|') == -1)
-    return -1;
-
-  if (parse_file_type(fields[0], &self->file_type) == -1) {
-    if (err)
-      *err = FILE_TYPE;
+  if (split_record(s, fields, '|') == -1) {
+    errno = EINVAL;
     return -1;
   }
 
-  if (parse_perm(fields[1], &self->perm) == -1) {
-    if (err)
-      *err = PERMISSIONS;
-    return -1;
-  }
+  if (parse_file_type(fields[0], &self->file_type) == -1)
+    return malformed(err, FILE_TYPE);
 
-  if (parse_uintmax(fields[2], &self->uid) == -1) {
-    if (err)
-      *err = UID;
-    return -1;
-  }
+  if (parse_perm(fields[1], &self->perm) == -1)
+    return malformed(err, PERMISSIONS);
 
-  if (parse_uintmax(fields[3], &self->gid) == -1) {
-    if (err)
-      *err = GID;
-    return -1;
-  }
+  if (parse_uintmax(fields[2], &self->uid) == -1)
+    return malformed(err, UID);
 
-  if (parse_intmax_nonnegative(fields[4], &self->size) == -1) {
-    if (err)
-      *err = SIZE;
-    return -1;
-  }
+  if (parse_uintmax(fields[3], &self->gid) == -1)
+    return malformed(err, GID);
 
-  if (parse_intmax_nonnegative(fields[5], &self->time) == -1) {
-    if (err)
-      *err = TIME;
-    return -1;
-  }
+  if (parse_intmax_nonnegative(fields[4], &self->size) == -1)
+    return malformed(err, SIZE);
+
+  if (parse_intmax_nonnegative(fields[5], &self->time) == -1)
+    return malformed(err, TIME);
 
   errno = 0;
   char *target = unescape_path(fields[6], '|');
   if (target == NULL) {
-    if (errno == EINVAL) {
-      if (err)
-        *err = TARGET;
-      return -1;
-    }
+    /* unescape_path already distinguished the two cases through errno. */
+    if (errno == EINVAL)
+      return malformed(err, TARGET);
     return -1;
   }
 
   self->target = target;
 
-  if (parse_uintmax(fields[7], &self->fingerprint) == -1) {
-    if (err)
-      *err = FINGERPRINT;
-    return -1;
-  }
+  if (parse_uintmax(fields[7], &self->fingerprint) == -1)
+    return malformed(err, FINGERPRINT);
 
-  if (fields[8][0] == '\0') {
-    if (err)
-      *err = PATH;
-    return -1;
-  }
+  if (fields[8][0] == '\0')
+    return malformed(err, PATH);
 
   errno = 0;
   char *path = unescape_path(fields[8], '|');
   if (path == NULL) {
-    if (errno == EINVAL) {
-      if (err)
-        *err = PATH;
-      return -1;
-    }
+    if (errno == EINVAL)
+      return malformed(err, PATH);
     return -1;
   }
 
