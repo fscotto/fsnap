@@ -31,6 +31,7 @@ INSTALL ?= install
 
 SOURCES := \
 	src/main.c \
+	src/stack.c \
 	src/utility.c \
 	src/types.c \
 	src/hash.c \
