@@ -160,8 +160,9 @@ returns `128` internally; `main` maps it to exit status `1`.
 - **Paths are absolute.** The input directory is resolved through `realpath()`
   before traversal; snapshots are tied to the machine and location where they
   were taken.
-- **Entries appear in `readdir` order**, not sorted. Two snapshots of the same
-  unchanged tree are not guaranteed to be byte-identical.
+- **Entries are visited depth-first**, each directory in `readdir` order, so
+  they are not sorted. Two snapshots of the same unchanged tree are not
+  guaranteed to be byte-identical.
 - **Files whose name ends in `.fsnap` are skipped by `create`**, so an existing
   snapshot inside the tree does not end up inside the new one. `scan` applies no
   such filter and lists everything.
@@ -191,8 +192,6 @@ These are actual, reproduced problems, not hypotheticals:
 - **Writing the output is not atomic.** The destination is truncated before the
   copy starts, so a failure partway through (full disk, killed process) leaves a
   truncated file where the previous snapshot used to be.
-- **One open directory handle per recursion level.** Deep trees can exhaust the
-  file-descriptor limit and fail with `Too many open files`.
 - **No exit code for a partial snapshot.** When directories are skipped because
   they are unreadable, the run still exits `0`. If the top-level directory itself
   is unreadable, the result is an empty snapshot reported as success.
@@ -216,7 +215,7 @@ Rough order of intent, no timeline:
 - [ ] Write the snapshot atomically — create the temporary file in the
       destination directory and `rename` it into place, falling back to a copy
       only across filesystems (`EXDEV`).
-- [ ] Stop holding a directory handle per level: close each directory before
+- [x] Stop holding a directory handle per level: close each directory before
       recursing, or walk iteratively with an explicit stack.
 - [ ] Introduce a distinct exit status for "completed with warnings", the way
       `tar` and `rsync` do, and fail outright when the root directory cannot be
