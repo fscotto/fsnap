@@ -22,7 +22,7 @@ struct Stack *StackNew(void) {
 
 bool StackEmpty(const struct Stack *self) {
   if (self == NULL)
-    return false;
+    return true;
   return self->len == 0;
 }
 
@@ -51,6 +51,8 @@ int StackPush(struct Stack *self, void *data) {
   if (self == NULL)
     return -1;
   struct Node *n = calloc(1, sizeof(*n));
+  if (n == NULL)
+    return -1;
   n->data = data;
   n->next = NULL;
   if (self->head == NULL) {
@@ -65,10 +67,10 @@ int StackPush(struct Stack *self, void *data) {
 }
 
 void StackRelease(struct Stack *self) {
-  if (self == NULL || self->head == NULL)
+  if (self == NULL)
     return;
   while (!StackEmpty(self)) {
-    (void *)StackPop(self);
+    StackPop(self);
   }
   free(self);
 }

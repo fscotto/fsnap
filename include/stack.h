@@ -5,7 +5,7 @@
 
 struct Stack;
 
-struct Stack *StackNew();
+struct Stack *StackNew(void);
 bool StackEmpty(const struct Stack *);
 void *StackTop(const struct Stack *);
 void *StackPop(struct Stack *);
