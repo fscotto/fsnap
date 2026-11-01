@@ -41,13 +41,16 @@ make            # produces build/fsnap
 make clean
 ```
 
-`make test` runs the suite in [tests/run.sh](tests/run.sh): 114 black-box checks
+`make test` runs the suite in [tests/run.sh](tests/run.sh): 172 black-box checks
 driving the built binary over the tree shapes [SPEC.md](SPEC.md) §22 asks for —
 regular and empty files, nested directories, symlinks, broken symlinks, hard
 links, FIFOs, sockets, unusual filenames and permission errors — plus the
 parser cases from §14 and §15, the `diff` classifications, and the `verify`
-findings. It is POSIX sh with no dependencies, and skips rather than fails what
-the environment cannot provide.
+findings. It is POSIX sh with no mandatory runtime dependencies, and skips
+rather than fails what the environment cannot provide. A further 14 C fault
+injection checks exercise failed sync/close/rename, the `EXDEV` fallback, and
+snapshots modified during reading. Both suites run under `make test` and
+`make valgrind`.
 
 `make valgrind` runs that same suite with every invocation under memcheck,
 which takes about 25 seconds against a fraction of a second for `make test`. It
@@ -86,10 +89,10 @@ $ fsnap scan ~/projects/example
 
 $ fsnap create ~/projects/example snapshot.fsnap
 $ head -4 snapshot.fsnap
-F|0644|1000|1000|182|1785598700||4022421711|/home/user/projects/example/README.md
-D|0755|1000|1000|80|1785598700||0|/home/user/projects/example/src
-F|0644|1000|1000|1319|1785598700||2184918239|/home/user/projects/example/src/main.c
-L|0777|1000|1000|6|1785598700|main.c|0|/home/user/projects/example/symlink-test
+FSNAP|1
+F|0644|1000|1000|182|1785598700||4022421711|2049|123|1|/home/user/projects/example/README.md
+D|0755|1000|1000|80|1785598700||0|2049|124|2|/home/user/projects/example/src
+F|0644|1000|1000|1319|1785598700||2184918239|2049|125|1|/home/user/projects/example/src/main.c
 
 $ fsnap list snapshot.fsnap        # silence means every record parsed
 $ fsnap list broken.fsnap
@@ -106,19 +109,29 @@ M	/home/user/projects/example/README.md
 D	/home/user/projects/example/old-file
 ```
 
-The program exits with `0` on success and `1` on failure. `verify` also exits
-`1` when it finds a difference, after reporting it on stdout. `list` internally
-returns `128` for a malformed record, but `main` maps it to exit status `1`.
+The program exits with `0` on complete success, `1` on failure, and `2` when
+`scan` or `create` completes with skipped entries and warnings on stderr.
+An unreadable root is a failure (`1`), not a successful empty snapshot.
+`verify` exits `1` for reported differences, or `2` for an incomplete walk
+when no differences were found. `list` internally returns `128` for a malformed record, but `main` maps it to exit status `1`.
 Diagnostics are written to stderr. A malformed snapshot has no distinct public
 exit status from another failure.
 
 ## Snapshot format
 
-One record per line, nine `|`-separated fields:
+New snapshots start with `FSNAP|1`, followed by one record per line with
+twelve `|`-separated fields:
 
 ```
-type|permissions|uid|gid|size|time|target|fingerprint|path
+FSNAP|1
+type|permissions|uid|gid|size|time|target|fingerprint|device|inode|links|path
 ```
+
+`list`, `diff`, and `verify` also accept the previous headerless nine-field
+format (`type` through `fingerprint`, then `path`), including zero-byte legacy
+snapshots. Unknown versions and mixed record layouts are rejected. Diagnostics
+use physical line numbers, including the header. Legacy records have no
+identity metadata: comparison uses those fields only when both records have it.
 
 | Field | Description |
 | --- | --- |
@@ -129,17 +142,18 @@ type|permissions|uid|gid|size|time|target|fingerprint|path
 | `time` | Modification time, seconds since the Unix epoch |
 | `target` | Symlink target returned by `readlink`; empty for non-symlink entries |
 | `fingerprint` | CRC32 of the contents for a regular file, and of the target string for a symlink, which is what the link holds. `0` for a directory and for the types that cannot be read at all (FIFO, socket, device) |
+| `device` / `inode` | Decimal `st_dev` and `st_ino`; matching pairs identify hard links |
+| `links` | Positive decimal `st_nlink`, the number of hard links |
 | `path` | Absolute path: the input root is resolved with `realpath`, then child names are appended; it is escaped |
 
 ### Escaping rules
-Only the `path` field is escaped by the writer:
+Both `path` and symlink `target` are escaped by the writer:
 - `\` is escaped to `\\`
 - `|` is escaped to `\|`
 - Newlines are escaped to `\n`
 
-The parser unescapes both `path` and `target`, but the writer does not escape
-`target`. Consequently, a symlink target containing `|`, a newline, or a
-backslash does not produce a reliably parseable snapshot.
+The parser splits on unescaped delimiters and reconstructs both fields,
+including literal backslashes and newlines in symlink targets.
 
 ### `diff` output
 
@@ -152,7 +166,7 @@ pathname:
 | `D` | Present only in the old snapshot |
 | `P` | Permissions are the first differing field |
 | `L` | The symlink target changed. Checked before the fingerprint, which for a link is derived from the target, so the specific answer wins over the generic one |
-| `M` | Any other difference, including type, owner, size, time, or fingerprint |
+| `M` | Any other difference, including type, owner, size, time, fingerprint, device, inode, or link count |
 
 `diff` reports a malformed input the way `list` does, as
 `snapshot:line: invalid <field_name>` or `snapshot:line: unparsable line`, and
@@ -175,11 +189,13 @@ field that differs.
 | `O` | Owner or group changed |
 | `L` | Symlink target changed (checked before size and mtime, which change with it) |
 | `M` | Modification time changed |
+| `I` | Device or inode changed (versioned snapshots, non-symlink entries) |
+| `H` | Hard-link count changed (versioned snapshots, non-symlink entries) |
 | `E` | The entry could not be inspected: the path, the reason, and `strerror` are printed. `EACCES`, `ENOTDIR`, `ELOOP` and `ENAMETOOLONG` stay distinct instead of collapsing into "missing" |
 
-`verify` exits `0` when the tree matches, `1` when it finds a difference, and
-`1` on a malformed or unreadable snapshot. A malformed snapshot is reported
-with the same `snapshot:line:` diagnostic as `list` and `diff`.
+`verify` exits `0` when the tree matches completely, `1` for differences or
+malformed/unreadable input, and `2` for an incomplete walk without findings.
+A malformed snapshot is reported with the same `snapshot:line:` diagnostic as `list` and `diff`.
 
 ## Behaviour worth knowing
 
@@ -198,9 +214,18 @@ with the same `snapshot:line:` diagnostic as `list` and `diff`.
   such filter and lists everything.
 - **Unreadable directories do not abort the run.** If `opendir` fails with
   `EACCES`, a warning goes to stderr, the directory's own record is still
-  written, and the walk continues with the rest of the tree.
-- **The snapshot is written to a temporary file under `/tmp` first**, then copied
-  to the destination. `TMPDIR` is ignored.
+  written, and the walk continues with the rest of the tree, returning `2`.
+  An unreadable regular file is omitted with a warning rather than a fabricated
+  fingerprint. An unreadable root always fails without publishing a snapshot.
+- **Snapshots are published atomically.** By default the work file is created
+  in the destination directory, flushed, synced, closed, and renamed into place.
+  A nonempty `TMPDIR` selects the work directory instead. If `rename` returns
+  `EXDEV`, fsnap copies to another private temporary file beside the destination,
+  syncs and closes it, then renames it. The old destination is never truncated.
+  Invalid `TMPDIR` values fail rather than being ignored. Temporary files are
+  cleaned on normal success and error paths; a killed process may leave one.
+  New snapshot files have mode `0600`, including replacements; existing output
+  symlinks and non-regular destinations are rejected.
 - **`list` stops at the first bad record.** It reports the offending line and
   field to stderr and gives up, so it is not a full report of everything wrong
   with a snapshot.
@@ -210,10 +235,13 @@ with the same `snapshot:line:` diagnostic as `list` and `diff`.
 - **Numeric fields must be bare digits.** Per [SPEC.md](SPEC.md) §14 the parser
   rejects out-of-range values (`ERANGE`), negative `uid`/`gid`, and any leading
   whitespace or `+` sign, rather than letting `strtoumax` wrap them.
-- **An empty snapshot is valid.** `create` produces a zero-byte file for an
-  empty directory, `list` accepts it silently with exit `0`, and `diff` treats
-  it as carrying no records, so every entry on the other side is reported as
-  added or deleted.
+- **An empty snapshot is valid.** `create` writes just `FSNAP|1` for an empty
+  directory. Readers also accept a zero-byte legacy file. Both carry no
+  records, so `diff` reports every entry on the other side as added or deleted.
+- **Readers use a single pass through EOF**, with a growing record array, not
+  a separate line-counting pass. A regular snapshot whose size or modification/
+  change timestamp changes during reading is rejected with a diagnostic;
+  trailing records cannot silently fall outside a pre-counted allocation.
 - **`verify` compares paths, not contents.** The stored fingerprint is not
   recomputed, so a regular file whose bytes changed while its size and mtime
   stayed the same is not reported.
@@ -224,53 +252,43 @@ with the same `snapshot:line:` diagnostic as `list` and `diff`.
 - **`verify` ignores `.fsnap` files while looking for new entries**, for the
   same reason `create` does: a snapshot living inside the tree is not part of
   the tree's contents.
-- **Every recorded metadata field except the fingerprint is compared**,
-  including a directory's size and mtime. Adding or removing a child can
-  therefore report its parent as well as the child itself.
+- **For non-symlink entries every metadata field except the fingerprint is
+  compared**, including device, inode, link count, and a directory's size and
+  mtime. Adding or removing a child can therefore report its parent too.
+  Symlink verification compares type and target only.
 
 ## Known limitations
 
-These are actual, reproduced problems, not hypotheticals:
-
-- **Writing the output is not atomic.** The destination is truncated before the
-  copy starts, so a failure partway through (full disk, killed process) leaves a
-  truncated file where the previous snapshot used to be.
-- **No exit code for a partial snapshot.** When directories are skipped because
-  they are unreadable, the run still exits `0`. If the top-level directory itself
-  is unreadable, the result is an empty snapshot reported as success.
-- **No hard-link or inode information** is recorded, so hard links cannot be
-  detected and identical files cannot be correlated.
-- **An unreadable regular file aborts the whole run.** `create` opens every
-  regular file to checksum it, and a failure there stops the walk and leaves no
-  snapshot, even though the same run tolerates a directory it cannot enter.
-  Running `fsnap create /etc` as an ordinary user fails on the first of the 39
-  files it may not read.
-- **Symlink targets are not escaped by the writer.** A target containing `|`, a
-  newline, or a backslash can make the generated record unparsable by `list`.
-- **`list` counts the lines in a separate pass over the file.** If the snapshot
-  grows between the counting pass and the parsing pass, the records past the
-  original count are silently ignored and `list` still exits `0`.
+- `verify` does not recompute content fingerprints; changed bytes with the same
+  inode, size and mtime can go undetected.
+- A walk is not a point-in-time filesystem snapshot. Concurrent tree changes
+  can cause inconsistent metadata or fail a command. The reader's timestamp
+  checks are change detection, not a locking or integrity guarantee.
+- Atomic publication does not promise power-loss durability: the destination
+  directory is not synced after `rename`.
+- Snapshot paths remain absolute and tied to their original location.
 
 ## Roadmap
 
 Rough order of intent, no timeline:
 
-- [ ] Write the snapshot atomically — create the temporary file in the
-      destination directory and `rename` it into place, falling back to a copy
-      only across filesystems (`EXDEV`).
+- [x] Write the snapshot atomically — create the temporary file in the
+      destination directory and `rename` it into place. With `TMPDIR` across
+      filesystems (`EXDEV`), copy to a private sibling before the final rename.
 - [x] Stop holding a directory handle per level: close each directory before
       recursing, or walk iteratively with an explicit stack.
-- [ ] Introduce a distinct exit status for "completed with warnings", the way
+- [x] Introduce a distinct exit status for "completed with warnings", the way
       `tar` and `rsync` do, and fail outright when the root directory cannot be
       read.
-- [ ] Add a version header to the format (e.g. `FSNAP|1`).
-- [ ] Record inode, device ID, and link count so hard links can be identified.
-- [ ] Report a snapshot that grew between the counting pass and the parsing pass
-      instead of silently ignoring the extra records.
+- [x] Add a version header to the format (e.g. `FSNAP|1`).
+- [x] Record inode, device ID, and link count so hard links can be identified.
+- [x] Report a snapshot that grew between the counting pass and the parsing pass
+      instead of silently ignoring the extra records (single-pass reading plus
+      change detection replaces the old counting pass).
 - [x] `fsnap verify <snapshot> <directory>` — compare a snapshot against the live
       filesystem, distinguishing `ENOENT`, `EACCES`, `ENOTDIR` and `ELOOP`
       rather than collapsing them ([SPEC.md](SPEC.md) §18).
-- [ ] Honour `TMPDIR` instead of hardcoding `/tmp`.
+- [x] Honour `TMPDIR`; default to the destination directory for atomic rename.
 
 ## License
 

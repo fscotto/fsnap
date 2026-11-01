@@ -1,98 +1,10 @@
 #include "diff.h"
 #include "types.h"
-#include "utility.h"
+#include "snapshot.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-/* Returns 0 on success, -1 on a system error, FSNAP_EPARSE if malformed. */
-static int load_in_memory(const char *file, struct RecordObject ***records,
-                          int *count) {
-  int rc = -1;
-  FILE *stream = NULL;
-  char *buf = NULL;
-
-  if ((stream = fopen(file, "r")) == NULL)
-    goto cleanup;
-
-  *count = count_lines(file);
-  if (*count < 0)
-    goto cleanup;
-
-  /* An empty snapshot is a valid one: create() produces it for an empty
-     directory and list() accepts it. It simply carries no records, so every
-     record in the other snapshot is an addition or a deletion. calloc(0, ..)
-     may legitimately return NULL, hence the early return. */
-  if (*count == 0) {
-    rc = 0;
-    goto cleanup;
-  }
-
-  *records = calloc((size_t)*count, sizeof(**records));
-  if (*records == NULL) {
-    errno = ENOMEM;
-    goto cleanup;
-  }
-
-  int i = 0;
-  size_t size = 0;
-  while (getline(&buf, &size, stream) != -1 && i < *count) {
-    struct RecordObject *objp = RecordObjectNew();
-    if (objp == NULL) {
-      errno = ENOMEM;
-      goto cleanup;
-    }
-
-    enum Fields err = NONE;
-    errno = 0;
-    int ret = RecordObjectUnpack(objp, buf, &err);
-    if (ret == -1) {
-      /* A failed allocation inside the parser is not a malformed record and
-         must not be reported as one; errno tells them apart. */
-      if (errno != EINVAL) {
-        RecordObjectRelease(objp);
-        goto cleanup;
-      }
-
-      /* Same diagnostic shape as list(): identify the snapshot, the line and
-         the offending field. A malformed record is not a system error, so it
-         gets its own status and main() leaves errno alone. */
-      if (err != NONE)
-        fprintf(stderr, "%s:%d: invalid %s\n", file, i + 1,
-                RecordObjectFieldName(err));
-      else
-        fprintf(stderr, "%s:%d: unparsable line\n", file, i + 1);
-      RecordObjectRelease(objp);
-      rc = FSNAP_EPARSE;
-      goto cleanup;
-    }
-
-    (*records)[i] = objp;
-    i++;
-  }
-
-  if (ferror(stream))
-    goto cleanup;
-
-  rc = 0;
-
-cleanup:;
-  const int saved_errno = errno;
-  if (stream != NULL)
-    fclose(stream);
-  free(buf);
-  errno = saved_errno;
-  return rc;
-}
-
-static void dealloc(struct RecordObject **records, int size) {
-  for (int j = 0; j < size; j++) {
-    RecordObjectRelease(records[j]);
-    records[j] = NULL;
-  }
-  free(records);
-}
 
 static int order_by_path(const void *o1, const void *o2) {
   const struct RecordObject *r1 = *(const struct RecordObject *const *)o1;
@@ -105,12 +17,11 @@ int diff(const char *file1, const char *file2) {
   struct RecordObject **records1 = NULL;
   struct RecordObject **records2 = NULL;
 
-  int len1 = 0;
-  if ((rc = load_in_memory(file1, &records1, &len1)) != 0)
+  int len1 = 0, len2 = 0;
+  if ((rc = snapshot_load(file1, &records1, &len1)) != 0)
     goto cleanup;
 
-  int len2 = 0;
-  if ((rc = load_in_memory(file2, &records2, &len2)) != 0)
+  if ((rc = snapshot_load(file2, &records2, &len2)) != 0)
     goto cleanup;
 
   if (records1 != NULL)
@@ -183,10 +94,12 @@ int diff(const char *file1, const char *file2) {
 
   rc = 0;
 
-cleanup:
+cleanup:;
+  const int saved_errno = errno;
   if (records1 != NULL)
-    dealloc(records1, len1);
+    snapshot_release(records1, len1);
   if (records2 != NULL)
-    dealloc(records2, len2);
+    snapshot_release(records2, len2);
+  errno = saved_errno;
   return rc;
 }

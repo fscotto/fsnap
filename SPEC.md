@@ -854,3 +854,45 @@ By the end of the project, the implementation should demonstrate practical under
 
 The project should favor correctness, explicit error handling, and understanding of Unix behavior over minimizing the amount of code.
 
+---
+
+# 26. Implemented Snapshot Format (Version 1)
+
+New snapshots start with the exact header `FSNAP|1`, followed by records:
+
+```text
+type|permissions|uid|gid|size|mtime|target|fingerprint|device|inode|links|path
+```
+
+`device`, `inode`, and `links` hold decimal `st_dev`, `st_ino`, and `st_nlink`
+converted through `uintmax_t`. A link count must be positive. A matching
+`(device, inode)` pair identifies names for the same filesystem object.
+Both `target` and `path` use the escaping defined in section 16. The fingerprint
+is CRC32 of regular-file bytes or of a symlink's unescaped target string, and
+zero for other entry types. An empty versioned snapshot contains only the header.
+
+Readers retain support for the legacy headerless nine-field format (the first
+eight fields above followed by `path`), including a zero-byte file. Unknown
+versions and mixed layouts must fail, with physical line numbers in diagnostics.
+Identity fields are compared only when present in both records. `verify` reports
+non-symlink identity changes with `I` and link-count changes with `H`.
+
+Readers consume a single stream through EOF with dynamic record storage. They
+must not silently accept only an initially counted prefix. Changes to a regular
+snapshot's size, mtime, or ctime during reading fail with `EAGAIN` and a diagnostic.
+This detects ordinary concurrent writes; it does not replace filesystem locking.
+
+`create` publishes a fully flushed, synced, and closed temporary file with
+`rename`. By default the temporary file is beside the destination. A nonempty
+`TMPDIR` overrides the working directory. Only `EXDEV` allows a copy fallback:
+copy into another private temporary file beside the destination, sync and close
+it, then rename. Never truncate the published destination. Destination symlinks
+and non-regular files are rejected; output files have mode `0600`. This provides
+atomic publication, not a promise of power-loss durability for the directory.
+
+Public exit status is `0` for complete success, `1` for failure, and `2` for
+completion with skipped entries. Unreadable child directories and unreadable
+regular files produce diagnostics and status `2`; unreadable file records are
+omitted rather than assigned a fabricated checksum. An unreadable root fails
+without publishing. `verify` returns `1` for findings, or `2` if its traversal
+was incomplete and found no differences.

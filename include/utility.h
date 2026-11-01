@@ -13,8 +13,4 @@ char *resolve_path(const char *path);
    Returns 0 on success, -1 on failure. */
 int copy(const char *src, const char *dst);
 
-/* Count lines in a file.
-   Returns the line count on success, -1 on failure. */
-int count_lines(const char *file);
-
 #endif

@@ -94,29 +94,3 @@ cleanup:;
   }
   return 0;
 }
-
-int count_lines(const char *file) {
-  FILE *f = fopen(file, "r");
-  if (f == NULL) {
-    return -1;
-  }
-
-  size_t size = 0;
-  int count = 0;
-  char *buf = NULL;
-  while (getline(&buf, &size, f) != -1)
-    count++;
-
-  if (ferror(f)) {
-    const int saved_errno = errno;
-    free(buf);
-    fclose(f);
-    errno = saved_errno;
-    return -1;
-  }
-
-  free(buf);
-  if (fclose(f) != 0)
-    return -1;
-  return count;
-}

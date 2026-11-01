@@ -171,7 +171,7 @@ if [ "$(id -u)" = "0" ]; then
 	skip "unreadable directory is reported on stderr (running as root)"
 else
 	out=$(fsnap scan noperm 2>err.txt)
-	is "unreadable directory does not abort the walk" "$?" "0"
+	is "unreadable directory returns warning status" "$?" "2"
 	contains "unreadable directory is reported on stderr" "$(cat err.txt)" "access denied"
 fi
 chmod 755 noperm/locked
@@ -184,11 +184,11 @@ is "create succeeds over a tree with every entry type" "$?" "0"
 is "create over a mixed tree is silent" "$(cat err.txt)" ""
 
 is "create writes one record per entry" \
-	"$(wc -l <snap.fsnap | tr -d ' ')" \
+	"$(($(wc -l <snap.fsnap) - 1))" \
 	"$(count_entries tree)"
 
 field() { # field <path-suffix> <n>
-	awk -F'|' -v s="$1" -v n="$2" 'substr($9, length($9) - length(s) + 1) == s { print $n }' snap.fsnap
+	awk -F'|' -v s="$1" -v n="$2" 'substr($12, length($12) - length(s) + 1) == s { print $n }' snap.fsnap
 }
 
 is "regular file is recorded as F" "$(field /tree/file.txt 1)" "F"
@@ -224,7 +224,7 @@ if [ -p tree/pipe ]; then
 	is "FIFO keeps fingerprint 0 rather than blocking" "$(field /tree/pipe 8)" "0"
 fi
 
-is "paths are absolute" "$(field /tree/file.txt 9 | cut -c1)" "/"
+is "paths are absolute" "$(field /tree/file.txt 12 | cut -c1)" "/"
 
 # Regressions: each of these used to abort create or hang it.
 for kind in link-to-dir broken-link pipe; do
@@ -239,8 +239,8 @@ done
 
 fsnap create empty-tree empty.fsnap
 is "create of an empty directory succeeds" "$?" "0"
-is "create of an empty directory writes an empty snapshot" \
-	"$(wc -c <empty.fsnap | tr -d ' ')" "0"
+is "create of an empty directory writes only the version header" \
+	"$(cat empty.fsnap)" "FSNAP|1"
 
 # Snapshots living inside the tree are skipped so they do not end up in
 # their own successor.
@@ -254,7 +254,7 @@ is "create fails on a missing source" "$?" "1"
 fsnap create tree "" >/dev/null 2>&1
 is "create rejects an empty destination" "$?" "1"
 
-# create writes a temporary file and copies it into place; nothing may be
+# create writes a temporary file and renames it into place; nothing may be
 # left behind either way.
 count_temps() {
 	find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'snapshot_*' 2>/dev/null |
@@ -300,7 +300,7 @@ mkdir -p odd
 fsnap create odd odd.fsnap 2>/dev/null
 is "create handles unusual filenames" "$?" "0"
 is "one record per unusual name" \
-	"$(wc -l <odd.fsnap | tr -d ' ')" \
+	"$(($(wc -l <odd.fsnap) - 1))" \
 	"$(count_entries odd)"
 fsnap list odd.fsnap >/dev/null 2>&1
 is "unusual filenames survive a create/list round trip" "$?" "0"
@@ -369,10 +369,10 @@ is "diff of a snapshot against itself is silent" "$out" ""
 
 is "diff reports every record of an empty-to-full comparison as added" \
 	"$(fsnap diff empty.fsnap snap.fsnap | grep -c '^A	')" \
-	"$(wc -l <snap.fsnap | tr -d ' ')"
+	"$(($(wc -l <snap.fsnap) - 1))"
 is "diff reports every record of a full-to-empty comparison as deleted" \
 	"$(fsnap diff snap.fsnap empty.fsnap | grep -c '^D	')" \
-	"$(wc -l <snap.fsnap | tr -d ' ')"
+	"$(($(wc -l <snap.fsnap) - 1))"
 
 out=$(fsnap diff empty.fsnap empty.fsnap 2>&1)
 is "diff of two empty snapshots succeeds" "$?" "0"
@@ -418,7 +418,7 @@ is "a fingerprint difference of exactly 2^32 is not lost" \
 # diff sorts by path, so readdir order must not leak into the result.
 fsnap diff snap.fsnap snap.fsnap >/dev/null 2>&1
 is "diff is insensitive to record order" "$?" "0"
-sort -r snap.fsnap >reversed.fsnap
+{ head -n 1 snap.fsnap; tail -n +2 snap.fsnap | sort -r; } >reversed.fsnap
 out=$(fsnap diff snap.fsnap reversed.fsnap 2>&1)
 is "diff of a reordered snapshot reports no changes" "$out" ""
 
@@ -555,6 +555,165 @@ fsnap create tree stale.fsnap >/dev/null 2>&1
 before=$(cksum <stale.fsnap)
 fsnap create /nonexistent-directory stale.fsnap >/dev/null 2>&1
 is "a failed create leaves the destination untouched" "$(cksum <stale.fsnap)" "$before"
+
+# --------------------------------------------------------------------------
+# Checklist regressions: versioning, links, warnings, atomic publication,
+# temporary directories, and reading through EOF without a counting pass.
+# --------------------------------------------------------------------------
+is "new snapshots declare format version 1" "$(head -n 1 snap.fsnap)" "FSNAP|1"
+is "hard links share a device ID" "$(field /tree/file.txt 9)" "$(field /tree/hardlink.txt 9)"
+is "hard links share an inode" "$(field /tree/file.txt 10)" "$(field /tree/hardlink.txt 10)"
+is "hard links record their link count" "$(field /tree/file.txt 11)" "2"
+isnt "independent files have different inodes" "$(field /tree/file.txt 10)" "$(field /tree/empty-file 10)"
+
+for n in 9 10 11; do
+	printf 'FSNAP|1\nF|0644|0|0|0|1||0|1|2|1|/f\n' >links-old.fsnap
+	awk -F'|' -v OFS='|' -v n="$n" 'NR == 2 { $n = $n + 1 } { print }' links-old.fsnap >links-new.fsnap
+	is "diff compares identity/link field $n" "$(fsnap diff links-old.fsnap links-new.fsnap)" "$(printf 'M\t/f')"
+done
+verify_fixture
+ln vtree/file.txt outside-hardlink
+out=$(fsnap verify vsnap.fsnap vtree 2>&1)
+contains "verify detects a changed hard-link count" "$out" "$(printf 'H\t%s/vtree/file.txt' "$WORK")"
+rm outside-hardlink
+cp -p vtree/file.txt replacement
+mv replacement vtree/file.txt
+out=$(fsnap verify vsnap.fsnap vtree 2>&1)
+contains "verify detects a replaced inode with identical size and mtime" "$out" "$(printf 'I\t%s/vtree/file.txt' "$WORK")"
+
+# Legacy records are still accepted, and missing new metadata does not create
+# spurious differences when comparing an old-format snapshot to a new one.
+awk -F'|' 'NR > 1 { print $1 "|" $2 "|" $3 "|" $4 "|" $5 "|" $6 "|" $7 "|" $8 "|" $12 }' snap.fsnap >legacy.fsnap
+fsnap list legacy.fsnap >/dev/null 2>&1
+is "list accepts legacy headerless records" "$?" "0"
+out=$(fsnap diff legacy.fsnap snap.fsnap 2>&1)
+is "legacy and versioned records compare without invented metadata changes" "$out" ""
+for cmd in list diff verify; do
+	printf 'FSNAP|99\n' >version.fsnap
+	case $cmd in
+	list) out=$(fsnap list version.fsnap 2>&1) ;;
+	diff) out=$(fsnap diff version.fsnap snap.fsnap 2>&1) ;;
+	verify) out=$(fsnap verify version.fsnap tree 2>&1) ;;
+	esac
+	is "$cmd rejects an unsupported format version" "$?" "1"
+	contains "$cmd explains an unsupported format version" "$out" "unsupported snapshot version"
+done
+for spec in 'device:8:-1' 'inode:9:184467440737095516160' 'link count:10:0'; do
+	name=${spec%%:*}; rest=${spec#*:}; index=${rest%%:*}; value=${rest#*:}
+	printf 'FSNAP|1\nF|0644|0|0|0|1||0|1|2|1|/f\n' |
+		awk -F'|' -v OFS='|' -v n="$index" -v v="$value" 'NR == 2 { $(n+1) = v } { print }' >version.fsnap
+	out=$(fsnap list version.fsnap 2>&1)
+	is "invalid $name is rejected in version 1" "$?" "1"
+	contains "invalid $name names the field and physical line" "$out" "version.fsnap:2: invalid $name"
+done
+printf 'FSNAP|1\nF|0644|0|0|0|1||0|/legacy\n' >version.fsnap
+fsnap list version.fsnap >/dev/null 2>&1
+is "a versioned snapshot cannot contain a legacy record" "$?" "1"
+printf 'F|0644|0|0|0|1||0|/f\000hidden\n' >nul.fsnap
+fsnap list nul.fsnap >/dev/null 2>&1
+is "embedded NUL cannot hide trailing input" "$?" "1"
+
+mkdir link-targets
+ln -s 'with|pipe' link-targets/pipe
+ln -s 'with\backslash' link-targets/backslash
+ln -s "$(printf 'with\nnewline')" link-targets/newline
+ln -s 'trailing\' link-targets/trailing
+ln -s 'literal\n' link-targets/literal
+fsnap create link-targets targets.fsnap >/dev/null 2>&1
+is "create accepts escaped symlink targets" "$?" "0"
+fsnap list targets.fsnap >/dev/null 2>&1
+is "escaped targets survive create/list" "$?" "0"
+out=$(fsnap verify targets.fsnap link-targets 2>&1)
+is "escaped targets verify successfully" "$?" "0"
+is "escaped targets retain their exact bytes" "$out" ""
+
+mkdir partial
+mkdir partial/locked
+: >partial/good
+chmod 000 partial/locked
+if [ "$(id -u)" = 0 ]; then
+	for name in 'create warning' 'verify warning' 'root scan failure' 'root create failure' 'old output preservation'; do
+		skip "$name for unreadable directories (running as root)"
+	done
+else
+	fsnap create partial partial.fsnap >out.txt 2>err.txt
+	is "create publishes a partial snapshot with status 2" "$?" "2"
+	fsnap verify partial.fsnap partial >out.txt 2>err.txt
+	is "verify cannot declare an incomplete traversal fully successful" "$?" "2"
+	fsnap scan partial/locked >/dev/null 2>&1
+	is "scan fails outright on an unreadable root" "$?" "1"
+	before=$(cksum <partial.fsnap)
+	fsnap create partial/locked partial.fsnap >/dev/null 2>&1
+	is "create fails outright on an unreadable root" "$?" "1"
+	is "an unreadable root preserves the old output" "$(cksum <partial.fsnap)" "$before"
+fi
+chmod 755 partial/locked
+: >partial/unreadable
+chmod 000 partial/unreadable
+if [ "$(id -u)" = 0 ]; then
+	skip "unreadable regular file produces a partial snapshot (running as root)"
+	skip "unreadable regular file is reported (running as root)"
+	skip "unreadable regular file is omitted, not given a false checksum (running as root)"
+	skip "readable sibling survives (running as root)"
+else
+	fsnap create partial partial.fsnap >out.txt 2>err.txt
+	is "unreadable regular file produces a partial snapshot" "$?" "2"
+	contains "unreadable regular file is reported" "$(cat err.txt)" "entry skipped"
+	is "unreadable file is omitted, not given a false checksum" "$(grep -c '/unreadable$' partial.fsnap)" "0"
+	is "a readable sibling is still recorded" "$(grep -c '/good$' partial.fsnap)" "1"
+fi
+chmod 600 partial/unreadable
+
+printf 'old snapshot\n' >atomic.fsnap
+ln atomic.fsnap held-old
+fsnap create tree atomic.fsnap >/dev/null 2>&1
+is "atomic replacement succeeds" "$?" "0"
+is "atomic replacement does not truncate the old inode" "$(cat held-old)" "old snapshot"
+ln -s held-old output-link
+fsnap create tree output-link >/dev/null 2>&1
+is "a symlink destination is rejected" "$?" "1"
+is "a symlink destination cannot overwrite its referent" "$(cat held-old)" "old snapshot"
+fsnap create tree tree/no-extension >/dev/null 2>&1
+is "an output without a snapshot suffix can live in the tree" "$?" "0"
+is "output and temporary files do not snapshot themselves" "$(grep -c 'no-extension\|snapshot_' tree/no-extension)" "0"
+rm tree/no-extension
+mkdir tmp-work
+TMPDIR="$WORK/tmp-work" fsnap create tree tmpdir.fsnap >/dev/null 2>&1
+is "create honours a valid TMPDIR" "$?" "0"
+is "TMPDIR is cleaned after publication" "$(count_entries tmp-work)" "0"
+TMPDIR=tmp-work fsnap create tree relative.fsnap >/dev/null 2>&1
+is "a relative TMPDIR works" "$?" "0"
+before=$(cksum <tmpdir.fsnap)
+TMPDIR="$WORK/nonexistent" fsnap create tree tmpdir.fsnap >/dev/null 2>&1
+is "an invalid TMPDIR fails instead of silently using /tmp" "$?" "1"
+is "an invalid TMPDIR preserves the destination" "$(cksum <tmpdir.fsnap)" "$before"
+TMPDIR="$WORK/tree" fsnap create tree inside-tmp.fsnap >/dev/null 2>&1
+is "TMPDIR may be inside the scanned tree" "$?" "0"
+is "a work file inside the tree is excluded" "$(grep -c 'snapshot_' inside-tmp.fsnap)" "0"
+
+# A single FIFO writer supplies more than two allocation blocks, followed by a
+# bad record. All three readers must reach it; no second open/count is needed.
+for cmd in list diff verify; do
+	mkfifo input.fifo
+	(
+		i=0
+		while [ "$i" -lt 150 ]; do
+			printf 'F|0644|0|0|0|1||0|/entry-%d\n' "$i"
+			i=$((i + 1))
+		done
+		printf 'X|bad\n'
+	) >input.fifo &
+	writer=$!
+	case $cmd in
+	list) out=$(fsnap list input.fifo 2>&1) ;;
+	diff) out=$(fsnap diff input.fifo snap.fsnap 2>&1) ;;
+	verify) out=$(fsnap verify input.fifo tree 2>&1) ;;
+	esac
+	is "$cmd reads a stream through its last record" "$?" "1"
+	contains "$cmd does not ignore records past an allocation boundary" "$out" "input.fifo:151:"
+	wait "$writer"
+	rm input.fifo
+done
 
 # --------------------------------------------------------------------------
 # Argument handling

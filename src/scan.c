@@ -21,7 +21,8 @@ int scan(const char *directory) {
   if (dir == NULL)
     return -1;
 
-  if (walk(dir, print_file, NULL) == -1) {
+  int status = walk(dir, print_file, NULL);
+  if (status == -1) {
     const int saved_errno = errno;
     free(dir);
     errno = saved_errno;
@@ -33,5 +34,5 @@ int scan(const char *directory) {
      only here. */
   if (fflush(stdout) == EOF)
     return -1;
-  return 0;
+  return status;
 }

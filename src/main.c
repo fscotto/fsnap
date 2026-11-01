@@ -21,11 +21,14 @@ int main(int argc, char *argv[]) {
       return EXIT_FAILURE;
     }
     const char *directory = argv[2];
-    if (scan(directory) == -1) {
+    int ret = scan(directory);
+    if (ret == -1) {
       const int err = errno;
       fprintf(stderr, "scan failed: %s\n", strerror(err));
       return EXIT_FAILURE;
     }
+    if (ret == FSNAP_WARNINGS)
+      return FSNAP_WARNINGS;
   } else if (strcmp(cmd, "create") == 0) {
     if (argc < 4) {
       fprintf(stderr,
@@ -35,11 +38,14 @@ int main(int argc, char *argv[]) {
     }
     const char *directory = argv[2];
     const char *output_file = argv[3];
-    if (create(directory, output_file) == -1) {
+    int ret = create(directory, output_file);
+    if (ret == -1) {
       const int err = errno;
       fprintf(stderr, "create failed: %s\n", strerror(err));
       return EXIT_FAILURE;
     }
+    if (ret == FSNAP_WARNINGS)
+      return FSNAP_WARNINGS;
   } else if (strcmp(cmd, "list") == 0) {
     if (argc < 3) {
       fprintf(stderr, "%s: command %s expected param [snapshot_file]\n",
@@ -87,6 +93,8 @@ int main(int argc, char *argv[]) {
       const int err = errno;
       fprintf(stderr, "verify failed: %s\n", strerror(err));
       return EXIT_FAILURE;
+    } else if (ret == FSNAP_WARNINGS) {
+      return FSNAP_WARNINGS;
     } else if (ret > 0) {
       return EXIT_FAILURE;
     }

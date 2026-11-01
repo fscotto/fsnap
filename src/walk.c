@@ -35,19 +35,16 @@ static int is_directory(const char *path, unsigned char type) {
 
 int walk(const char *directory, WalkOp op, void *context) {
   char *base = NULL;
+  DIR *dirp = NULL;
+  int status = 0;
 
   struct Stack *stack = StackNew();
   if (stack == NULL)
     goto failed;
 
-  DIR *dirp = opendir(directory);
-  if (dirp == NULL) {
-    if (errno == EACCES) {
-      fprintf(stderr, "access denied: %s\n", directory);
-      goto success;
-    }
+  dirp = opendir(directory);
+  if (dirp == NULL)
     goto failed;
-  }
 
   /* The stack owns the char *paths of the subdirectories still to inspect.
      At most one DIR is open at a time, so a deep tree cannot exhaust the
@@ -55,9 +52,12 @@ int walk(const char *directory, WalkOp op, void *context) {
      read; NULL means the root was passed directly, so its storage is not
      owned. */
   for (;;) {
-    errno = 0;
     struct dirent *direntp;
-    while ((direntp = readdir(dirp)) != NULL) {
+    for (;;) {
+      errno = 0;
+      direntp = readdir(dirp);
+      if (direntp == NULL)
+        break;
       if (ignore_file(direntp->d_name))
         continue;
 
@@ -72,18 +72,22 @@ int walk(const char *directory, WalkOp op, void *context) {
         goto failed;
       }
 
+      int ret = op(path, context);
+      if (ret == -1) {
+        free(path);
+        goto failed;
+      }
+      if (ret == FSNAP_WARNINGS)
+        status = FSNAP_WARNINGS;
+
       if (type == 1) {
         /* Report the directory itself, then keep it pending for descent.
            The stack now owns path; do not free it here. */
-        if (op(path, context) == -1 || StackPush(stack, path) == -1) {
+        if (StackPush(stack, path) == -1) {
           free(path);
           goto failed;
         }
       } else {
-        if (op(path, context) == -1) {
-          free(path);
-          goto failed;
-        }
         free(path);
       }
     }
@@ -91,9 +95,10 @@ int walk(const char *directory, WalkOp op, void *context) {
     if (errno != 0)
       goto failed;
 
-    if (closedir(dirp) == -1)
-      goto failed;
+    int close_status = closedir(dirp);
     dirp = NULL;
+    if (close_status == -1)
+      goto failed;
     free(base);
     base = NULL;
 
@@ -112,6 +117,7 @@ int walk(const char *directory, WalkOp op, void *context) {
         goto failed;
       }
       fprintf(stderr, "access denied: %s\n", base);
+      status = FSNAP_WARNINGS;
       free(base);
       base = NULL;
     }
@@ -126,7 +132,7 @@ success:;
   }
   if (stack != NULL)
     StackRelease(stack);
-  return 0;
+  return status;
 
 failed:;
   const int saved_errno = errno;

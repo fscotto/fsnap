@@ -1,5 +1,6 @@
 #include "verify.h"
 #include "status.h"
+#include "snapshot.h"
 #include "types.h"
 #include "utility.h"
 #include "walk.h"
@@ -228,103 +229,15 @@ static int verify_record(const struct RecordObject *record, int *differences) {
   if ((intmax_t)st.st_mtime != RecordObjectTime(record))
     return report('M', path, differences);
 
+  if (RecordObjectVersion(record)) {
+    if ((uintmax_t)st.st_dev != RecordObjectDevice(record) ||
+        (uintmax_t)st.st_ino != RecordObjectInode(record))
+      return report('I', path, differences);
+    if ((uintmax_t)st.st_nlink != RecordObjectLinks(record))
+      return report('H', path, differences);
+  }
+
   return 0;
-}
-
-static void release_records(struct RecordObject **records, int count) {
-  if (records == NULL)
-    return;
-  for (int i = 0; i < count; i++)
-    RecordObjectRelease(records[i]);
-  free(records);
-}
-
-static int load_snapshot(const char *file, struct RecordObject ***out,
-                         int *out_count) {
-  int rc = -1;
-  FILE *stream = NULL;
-  char *buf = NULL;
-  struct RecordObject **records = NULL;
-  int count = 0;
-
-  if ((stream = fopen(file, "r")) == NULL)
-    goto cleanup;
-
-  count = count_lines(file);
-  if (count < 0)
-    goto cleanup;
-
-  if (count == 0) {
-    *out = NULL;
-    *out_count = 0;
-    rc = 0;
-    goto cleanup;
-  }
-
-  records = calloc((size_t)count, sizeof(*records));
-  if (records == NULL) {
-    errno = ENOMEM;
-    goto cleanup;
-  }
-
-  int i = 0;
-  size_t size = 0;
-  while (i < count && getline(&buf, &size, stream) != -1) {
-    struct RecordObject *record = RecordObjectNew();
-    if (record == NULL)
-      goto cleanup;
-
-    enum Fields err = NONE;
-    errno = 0;
-    if (RecordObjectUnpack(record, buf, &err) == -1) {
-      /* An allocation failure is not a malformed record and must not be
-         reported as one; errno tells them apart. */
-      if (errno != EINVAL) {
-        RecordObjectRelease(record);
-        goto cleanup;
-      }
-
-      if (err != NONE)
-        fprintf(stderr, "%s:%d: invalid %s\n", file, i + 1,
-                RecordObjectFieldName(err));
-      else
-        fprintf(stderr, "%s:%d: unparsable line\n", file, i + 1);
-      RecordObjectRelease(record);
-      rc = FSNAP_EPARSE;
-      goto cleanup;
-    }
-
-    records[i] = record;
-    i++;
-  }
-
-  if (ferror(stream))
-    goto cleanup;
-
-  *out = records;
-  *out_count = i;
-  records = NULL;
-  rc = 0;
-
-cleanup:;
-  const int saved_errno = errno;
-  int cleanup_errno = 0;
-
-  if (stream != NULL && fclose(stream) != 0)
-    cleanup_errno = errno;
-
-  release_records(records, count);
-  free(buf);
-
-  if (rc == -1) {
-    errno = saved_errno;
-    return -1;
-  }
-  if (rc == 0 && cleanup_errno != 0) {
-    errno = cleanup_errno;
-    return -1;
-  }
-  return rc;
 }
 
 int verify(const char *snapshot, const char *root_fs) {
@@ -344,7 +257,7 @@ int verify(const char *snapshot, const char *root_fs) {
   if (resolved == NULL)
     goto cleanup;
 
-  rc = load_snapshot(snapshot, &records, &count);
+  rc = snapshot_load(snapshot, &records, &count);
   if (rc != 0)
     goto cleanup;
 
@@ -352,7 +265,8 @@ int verify(const char *snapshot, const char *root_fs) {
     qsort(records, (size_t)count, sizeof(records[0]), order_by_path);
 
   struct VerifyContext ctx = {records, count, differences};
-  if (walk(resolved, mark_new, &ctx) == -1) {
+  int walk_status = walk(resolved, mark_new, &ctx);
+  if (walk_status == -1) {
     rc = -1;
     goto cleanup;
   }
@@ -372,11 +286,11 @@ int verify(const char *snapshot, const char *root_fs) {
     goto cleanup;
   }
 
-  rc = differences ? 1 : 0;
+  rc = differences ? 1 : walk_status;
 
 cleanup:;
   const int saved_errno = errno;
-  release_records(records, count);
+  snapshot_release(records, count);
   free(resolved);
   if (rc == -1)
     errno = saved_errno;

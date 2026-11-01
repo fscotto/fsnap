@@ -14,6 +14,9 @@ enum Fields {
   TARGET,
   FINGERPRINT,
   PATH,
+  DEVICE,
+  INODE,
+  LINKS,
   NONE,
 };
 
@@ -25,13 +28,15 @@ struct RecordObject;
    with errno set to ENOMEM. */
 struct RecordObject *RecordObjectNew(void);
 
-/* Unpack a pipe-delimited record string into self.
+/* Unpack a pipe-delimited record string into self. version is 0 for legacy
+   nine-field records or 1 for the twelve-field versioned format.
    Returns 0 on success, -1 on failure. On failure errno is EINVAL when the
    record is malformed and something else, ENOMEM in practice, when the
    failure is the parser's own; only in the first case is *err meaningful.
    If err is non-NULL and the offending field could be identified, sets *err
    to that field. */
-int RecordObjectUnpack(struct RecordObject *self, char *s, enum Fields *err);
+int RecordObjectUnpack(struct RecordObject *self, char *s, enum Fields *err,
+                       unsigned version);
 
 /* Populate self by stat-ing the file at path and writing to out.
    Returns the number of bytes written on success, -1 on failure. */
@@ -47,6 +52,10 @@ int RecordObjectCompare(const struct RecordObject *self,
                         const struct RecordObject *other, enum Fields *err);
 
 /* Accessors */
+unsigned RecordObjectVersion(const struct RecordObject *self);
+uintmax_t RecordObjectDevice(const struct RecordObject *self);
+uintmax_t RecordObjectInode(const struct RecordObject *self);
+uintmax_t RecordObjectLinks(const struct RecordObject *self);
 char RecordObjectFileType(const struct RecordObject *self);
 unsigned int RecordObjectPermissions(const struct RecordObject *self);
 uintmax_t RecordObjectUid(const struct RecordObject *self);

@@ -9,11 +9,12 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define NFIELDS 9
+#define NFIELDS 12
 
 static const char *field_names[] = {
     "file type", "permissions", "uid",         "gid",  "size",
-    "time",      "target",      "fingerprint", "path", "none"};
+    "time",      "target",      "fingerprint", "path", "device",
+    "inode",     "link count",  "none"};
 
 const char *RecordObjectFieldName(enum Fields f) {
   /* The underlying type of an enum is the compiler's choice, so guard the
@@ -23,27 +24,24 @@ const char *RecordObjectFieldName(enum Fields f) {
 
 /*======================= static functions ===================================*/
 
-static int split_record(char *line, char *fields[NFIELDS], char delim) {
+static int split_record(char *line, char *fields[NFIELDS], size_t count) {
   char *p = line;
-
   line[strcspn(line, "\n")] = '\0';
-
-  for (size_t n = 0; n < NFIELDS - 1; n++) {
+  for (size_t n = 0; n < count; n++) {
     fields[n] = p;
-
-    char *sep = strchr(p, delim);
-    if (sep == NULL)
+    /* Skip escaped delimiters in both target and path. Invalid escapes are
+       diagnosed later by the field's unescaper. */
+    while (*p != '\0' && *p != '|') {
+      if (*p == '\\' && p[1] != '\0')
+        p++;
+      p++;
+    }
+    if (n == count - 1)
+      return *p == '\0' ? 0 : -1;
+    if (*p == '\0')
       return -1;
-
-    *sep = '\0';
-    p = sep + 1;
+    *p++ = '\0';
   }
-
-  /* Only the path may contain an escaped delimiter, and it is the last field,
-     so the separators found above are always the real ones. Validating
-     what is left is the unescaper's job. */
-  fields[NFIELDS - 1] = p;
-
   return 0;
 }
 
@@ -259,6 +257,8 @@ struct RecordObject {
   char *path;
   char *target; /* only for symlink */
   uintmax_t fingerprint;
+  uintmax_t device, inode, links;
+  unsigned version;
 };
 
 struct RecordObject *RecordObjectNew(void) {
@@ -283,9 +283,11 @@ static int malformed(enum Fields *err, enum Fields field) {
   return -1;
 }
 
-int RecordObjectUnpack(struct RecordObject *self, char *s, enum Fields *err) {
+int RecordObjectUnpack(struct RecordObject *self, char *s, enum Fields *err,
+                       unsigned version) {
   char *fields[NFIELDS];
-  if (split_record(s, fields, '|') == -1) {
+  self->version = version;
+  if (split_record(s, fields, version == 1 ? 12 : 9) == -1) {
     errno = EINVAL;
     return -1;
   }
@@ -322,11 +324,20 @@ int RecordObjectUnpack(struct RecordObject *self, char *s, enum Fields *err) {
   if (parse_uintmax(fields[7], &self->fingerprint) == -1)
     return malformed(err, FINGERPRINT);
 
-  if (fields[8][0] == '\0')
+  if (version == 1) {
+    if (parse_uintmax(fields[8], &self->device) == -1)
+      return malformed(err, DEVICE);
+    if (parse_uintmax(fields[9], &self->inode) == -1)
+      return malformed(err, INODE);
+    if (parse_uintmax(fields[10], &self->links) == -1 || self->links == 0)
+      return malformed(err, LINKS);
+  }
+  const size_t path_field = version == 1 ? 11 : 8;
+  if (fields[path_field][0] == '\0')
     return malformed(err, PATH);
 
   errno = 0;
-  char *path = unescape_path(fields[8], '|');
+  char *path = unescape_path(fields[path_field], '|');
   if (path == NULL) {
     if (errno == EINVAL)
       return malformed(err, PATH);
@@ -386,6 +397,18 @@ int RecordObjectCompare(const struct RecordObject *self,
     exit_code = cmp_uintmax(self->fingerprint, other->fingerprint);
     if (err)
       *err = FINGERPRINT;
+  } else if (self->version && other->version && self->device != other->device) {
+    exit_code = cmp_uintmax(self->device, other->device);
+    if (err)
+      *err = DEVICE;
+  } else if (self->version && other->version && self->inode != other->inode) {
+    exit_code = cmp_uintmax(self->inode, other->inode);
+    if (err)
+      *err = INODE;
+  } else if (self->version && other->version && self->links != other->links) {
+    exit_code = cmp_uintmax(self->links, other->links);
+    if (err)
+      *err = LINKS;
   } else {
     int retp = strcmp(or_empty(self->path), or_empty(other->path));
     if (retp != 0) {
@@ -414,6 +437,10 @@ int RecordObjectWrite(struct RecordObject *self, const char *path, FILE *out) {
   self->gid = (uintmax_t)st.st_gid;
   self->size = (intmax_t)st.st_size;
   self->time = (intmax_t)st.st_mtime;
+  self->device = (uintmax_t)st.st_dev;
+  self->inode = (uintmax_t)st.st_ino;
+  self->links = (uintmax_t)st.st_nlink;
+  self->version = 1;
   s = sanitize_path(path);
   if (s == NULL)
     goto cleanup;
@@ -481,16 +508,22 @@ int RecordObjectWrite(struct RecordObject *self, const char *path, FILE *out) {
   }
   self->fingerprint = hash;
 
-  rc = fprintf(out, "%c|%04o|%ju|%ju|%jd|%jd|%s|%ju|%s\n", self->file_type,
+  s = sanitize_path(or_empty(self->target));
+  if (s == NULL)
+    goto cleanup;
+
+  rc = fprintf(out, "%c|%04o|%ju|%ju|%jd|%jd|%s|%ju|%ju|%ju|%ju|%s\n", self->file_type,
                self->perm, self->uid, self->gid, self->size, self->time,
-               self->target == NULL ? "" : self->target, self->fingerprint,
+               s, self->fingerprint, self->device, self->inode, self->links,
                self->path);
 
-cleanup:
+cleanup:;
+  const int saved_errno = errno;
   free(s);
   free(target);
   if (f != NULL)
     fclose(f);
+  errno = saved_errno;
   return rc;
 }
 
@@ -521,4 +554,17 @@ const char *RecordObjectTarget(const struct RecordObject *self) {
 }
 uintmax_t RecordObjectFingerPrint(const struct RecordObject *self) {
   return self->fingerprint;
+}
+
+unsigned RecordObjectVersion(const struct RecordObject *self) {
+  return self->version;
+}
+uintmax_t RecordObjectDevice(const struct RecordObject *self) {
+  return self->device;
+}
+uintmax_t RecordObjectInode(const struct RecordObject *self) {
+  return self->inode;
+}
+uintmax_t RecordObjectLinks(const struct RecordObject *self) {
+  return self->links;
 }

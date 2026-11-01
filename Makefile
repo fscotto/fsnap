@@ -34,6 +34,7 @@ SOURCES := \
 	src/stack.c \
 	src/utility.c \
 	src/types.c \
+	src/snapshot.c \
 	src/hash.c \
 	src/walk.c \
 	src/scan.c \
@@ -58,12 +59,33 @@ $(BUILD_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
+# Fault injection is compile-time libc redirection, not LD_PRELOAD or a GNU
+# linker extension, so the error-path tests stay usable with POSIX toolchains.
+FAULT_OBJECTS := $(filter-out $(BUILD_DIR)/src/main.o $(BUILD_DIR)/src/create.o \
+	$(BUILD_DIR)/src/snapshot.o,$(OBJECTS)) \
+	$(BUILD_DIR)/tests/create.o $(BUILD_DIR)/tests/snapshot.o $(BUILD_DIR)/tests/faults.o
+DEPENDENCIES += $(BUILD_DIR)/tests/create.d $(BUILD_DIR)/tests/snapshot.d \
+	$(BUILD_DIR)/tests/faults.d
+
+$(BUILD_DIR)/tests/create.o: src/create.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Dfsync=test_fsync -Drename=test_rename \
+		-Dfclose=test_fclose -c $< -o $@
+
+$(BUILD_DIR)/tests/snapshot.o: src/snapshot.c
+	@mkdir -p $(dir $@)
+	$(CC) $(CPPFLAGS) $(CFLAGS) -Dfstat=test_fstat -Dfclose=test_fclose -c $< -o $@
+
+$(BUILD_DIR)/tests/faults: $(FAULT_OBJECTS)
+	$(CC) $(LDFLAGS) $(FAULT_OBJECTS) $(LDLIBS) -o $@
+
 run: $(TARGET)
 	./$(TARGET)
 
 # Black-box: the suite drives the built binary, so it needs nothing but sh.
-test: $(TARGET)
+test: $(TARGET) $(BUILD_DIR)/tests/faults
 	@FSNAP='$(CURDIR)/$(TARGET)' sh $(TESTS)
+	@$(BUILD_DIR)/tests/faults
 
 # The same suite with every invocation under memcheck. -q keeps stderr clean,
 # which matters because several tests compare it; a distinct exit code turns any
@@ -71,10 +93,11 @@ test: $(TARGET)
 MEMCHECK := valgrind -q --error-exitcode=99 --leak-check=full \
 	--errors-for-leak-kinds=all --track-origins=yes
 
-valgrind: $(TARGET)
+valgrind: $(TARGET) $(BUILD_DIR)/tests/faults
 	@command -v valgrind >/dev/null 2>&1 || { \
 		echo 'valgrind is not installed' >&2; exit 2; }
 	@FSNAP='$(CURDIR)/$(TARGET)' VALGRIND='$(MEMCHECK)' sh $(TESTS)
+	@$(MEMCHECK) $(BUILD_DIR)/tests/faults
 
 install: $(TARGET)
 	$(INSTALL) -d $(DESTDIR)$(BINDIR)
