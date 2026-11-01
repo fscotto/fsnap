@@ -432,6 +432,123 @@ fsnap diff /nonexistent.fsnap snap.fsnap >/dev/null 2>&1
 is "diff fails on a missing input" "$?" "1"
 
 # --------------------------------------------------------------------------
+# verify
+# --------------------------------------------------------------------------
+# Each test starts from the same small tree, because a change to the live
+# filesystem is what verify is asked to notice.
+verify_fixture() {
+	rm -rf vtree vsnap.fsnap
+	mkdir -p vtree/sub
+	printf 'hello\n' >vtree/file.txt
+	printf 'nested\n' >vtree/sub/nested.txt
+	ln -s file.txt vtree/link.txt
+	fsnap create vtree vsnap.fsnap >/dev/null 2>&1
+}
+
+verify_fixture
+out=$(fsnap verify vsnap.fsnap vtree 2>&1)
+is "verify of an unchanged tree succeeds" "$?" "0"
+is "verify of an unchanged tree is silent" "$out" ""
+
+printf 'new\n' >vtree/new.txt
+out=$(fsnap verify vsnap.fsnap vtree 2>&1)
+is "verify reports a difference with a failure status" "$?" "1"
+contains "a new file is reported as A" "$out" \
+	"$(printf 'A\t%s/vtree/new.txt' "$WORK")"
+
+verify_fixture
+rm vtree/file.txt
+out=$(fsnap verify vsnap.fsnap vtree 2>&1)
+contains "a missing file is reported as D" "$out" \
+	"$(printf 'D\t%s/vtree/file.txt' "$WORK")"
+
+verify_fixture
+printf 'more\n' >>vtree/file.txt
+out=$(fsnap verify vsnap.fsnap vtree 2>&1)
+contains "a size change is reported as S" "$out" \
+	"$(printf 'S\t%s/vtree/file.txt' "$WORK")"
+
+verify_fixture
+chmod 600 vtree/file.txt
+out=$(fsnap verify vsnap.fsnap vtree 2>&1)
+contains "a permission change is reported as P" "$out" \
+	"$(printf 'P\t%s/vtree/file.txt' "$WORK")"
+
+verify_fixture
+if touch -t 200001010000 vtree/file.txt 2>/dev/null; then
+	out=$(fsnap verify vsnap.fsnap vtree 2>&1)
+	contains "an mtime change is reported as M" "$out" \
+		"$(printf 'M\t%s/vtree/file.txt' "$WORK")"
+else
+	skip "an mtime change is reported as M (touch -t unavailable)"
+fi
+
+verify_fixture
+ln -sf other-target vtree/link.txt
+out=$(fsnap verify vsnap.fsnap vtree 2>&1)
+contains "a changed symlink target is reported as L" "$out" \
+	"$(printf 'L\t%s/vtree/link.txt' "$WORK")"
+
+verify_fixture
+rm vtree/file.txt
+mkdir vtree/file.txt
+out=$(fsnap verify vsnap.fsnap vtree 2>&1)
+contains "a changed file type is reported as T" "$out" \
+	"$(printf 'T\t%s/vtree/file.txt' "$WORK")"
+
+verify_fixture
+rm -rf vtree/sub
+: >vtree/sub
+out=$(fsnap verify vsnap.fsnap vtree 2>&1)
+contains "ENOTDIR is distinguished from a missing file" "$out" \
+	"$(printf 'E\t%s/vtree/sub/nested.txt\tNot a directory' "$WORK")"
+
+verify_fixture
+if [ "$(id -u)" = "0" ]; then
+	skip "EACCES is distinguished from a missing file (running as root)"
+else
+	chmod 000 vtree/sub
+	out=$(fsnap verify vsnap.fsnap vtree 2>&1)
+	contains "EACCES is distinguished from a missing file" "$out" \
+		"$(printf 'E\t%s/vtree/sub/nested.txt\tPermission denied' "$WORK")"
+	chmod 755 vtree/sub
+fi
+
+verify_fixture
+: >vempty.fsnap
+mkdir vempty
+out=$(fsnap verify vempty.fsnap vempty 2>&1)
+is "verify of an empty snapshot against an empty directory succeeds" "$?" "0"
+is "verify of an empty snapshot against an empty directory is silent" "$out" ""
+
+out=$(fsnap verify vempty.fsnap vtree 2>&1)
+is "verify of an empty snapshot against a populated tree fails" "$?" "1"
+is "every entry is reported as new" \
+	"$(printf '%s\n' "$out" | grep -c '^A	')" \
+	"$(count_entries vtree)"
+
+verify_fixture
+fsnap create vtree vtree/self.fsnap >/dev/null 2>&1
+out=$(fsnap verify vtree/self.fsnap vtree 2>&1)
+isnt "verify does not report the snapshot file as new" "$out" \
+	"$(printf 'A\t%s/vtree/self.fsnap' "$WORK")"
+# Writing the snapshot changed the metadata of the directory holding it, so
+# silence is not guaranteed here; the point is that no A line names the
+# snapshot itself.
+is "verify finds no new entries when only the snapshot changed" \
+	"$(printf '%s\n' "$out" | grep -c '^A	')" "0"
+
+printf 'X|nope\n' >badv.fsnap
+err=$(fsnap verify badv.fsnap vtree 2>&1)
+is "verify fails on a malformed snapshot" "$?" "1"
+contains "verify names the offending line" "$err" "badv.fsnap:1:"
+
+fsnap verify /nonexistent.fsnap vtree >/dev/null 2>&1
+is "verify fails on a missing snapshot" "$?" "1"
+fsnap verify vsnap.fsnap /nonexistent-directory >/dev/null 2>&1
+is "verify fails on a missing directory" "$?" "1"
+
+# --------------------------------------------------------------------------
 # A failed create must not leave a stale snapshot looking like a fresh one.
 # --------------------------------------------------------------------------
 fsnap create tree stale.fsnap >/dev/null 2>&1
@@ -452,6 +569,8 @@ fsnap create tree >/dev/null 2>&1
 is "create without its second argument is an error" "$?" "1"
 fsnap diff snap.fsnap >/dev/null 2>&1
 is "diff without its second argument is an error" "$?" "1"
+fsnap verify snap.fsnap >/dev/null 2>&1
+is "verify without its second argument is an error" "$?" "1"
 
 # --------------------------------------------------------------------------
 printf '\n1..%d\n' "$testno"

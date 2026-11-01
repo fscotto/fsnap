@@ -6,7 +6,8 @@
 
 int main(int argc, char *argv[]) {
   if (argc < 2) {
-    fprintf(stderr, "%s: command not found [scan|create|list|diff]\n", argv[0]);
+    fprintf(stderr, "%s: command not found [scan|create|list|diff|verify]\n",
+            argv[0]);
     return EXIT_FAILURE;
   }
 
@@ -41,8 +42,8 @@ int main(int argc, char *argv[]) {
     }
   } else if (strcmp(cmd, "list") == 0) {
     if (argc < 3) {
-      fprintf(stderr, "%s: command %s expected param [snapshot_file]\n", argv[0],
-              cmd);
+      fprintf(stderr, "%s: command %s expected param [snapshot_file]\n",
+              argv[0], cmd);
       return EXIT_FAILURE;
     }
     const char *snapshot = argv[2];
@@ -56,9 +57,10 @@ int main(int argc, char *argv[]) {
     }
   } else if (strcmp(cmd, "diff") == 0) {
     if (argc < 4) {
-      fprintf(stderr,
-              "%s: command %s expected params [snapshot_file1 snapshot_file2]\n",
-              argv[0], cmd);
+      fprintf(
+          stderr,
+          "%s: command %s expected params [snapshot_file1 snapshot_file2]\n",
+          argv[0], cmd);
       return EXIT_FAILURE;
     }
     const char *snapshot1 = argv[2];
@@ -67,6 +69,23 @@ int main(int argc, char *argv[]) {
     if (ret == -1) {
       const int err = errno;
       fprintf(stderr, "diff failed: %s\n", strerror(err));
+      return EXIT_FAILURE;
+    } else if (ret > 0) {
+      return EXIT_FAILURE;
+    }
+  } else if (strcmp(cmd, "verify") == 0) {
+    if (argc < 4) {
+      fprintf(stderr,
+              "%s: command %s expected params [snapshot_file directory]\n",
+              argv[0], cmd);
+      return EXIT_FAILURE;
+    }
+    const char *snapshot = argv[2];
+    const char *root_fs = argv[3];
+    int ret = verify(snapshot, root_fs);
+    if (ret == -1) {
+      const int err = errno;
+      fprintf(stderr, "verify failed: %s\n", strerror(err));
       return EXIT_FAILURE;
     } else if (ret > 0) {
       return EXIT_FAILURE;

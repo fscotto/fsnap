@@ -17,7 +17,7 @@ today, and points at the spec where the two differ.
 
 ## What it does today
 
-Four commands are implemented:
+Five commands are implemented:
 
 | Command | Description |
 | --- | --- |
@@ -25,10 +25,11 @@ Four commands are implemented:
 | `fsnap create <directory> <output_file>` | Recursively walk `<directory>`, compute fingerprints, and write one metadata record per entry into `<output_file>`. |
 | `fsnap list <snapshot_file>` | Read `<snapshot_file>` and validate every record. Reports the first malformed record on stderr; prints nothing when the snapshot is sound. |
 | `fsnap diff <old_snapshot> <new_snapshot>` | Load both snapshots, sort their records by path, and print additions, deletions, and changes. |
+| `fsnap verify <snapshot> <directory>` | Compare a snapshot with the live tree rooted at `<directory>` and print every lost, new, or changed entry. |
 
 `list` is a parser and validator by design, not a pretty-printer — see
-[SPEC.md](SPEC.md) §12. `verify` (compare a snapshot against the live
-filesystem) is not implemented. See the [Roadmap](#roadmap).
+[SPEC.md](SPEC.md) §12. `verify` is the live-filesystem counterpart of `diff`;
+see [SPEC.md](SPEC.md) §18.
 
 ## Building
 
@@ -40,13 +41,13 @@ make            # produces build/fsnap
 make clean
 ```
 
-`make test` runs the suite in [tests/run.sh](tests/run.sh): 91 black-box checks
+`make test` runs the suite in [tests/run.sh](tests/run.sh): 114 black-box checks
 driving the built binary over the tree shapes [SPEC.md](SPEC.md) §22 asks for —
 regular and empty files, nested directories, symlinks, broken symlinks, hard
 links, FIFOs, sockets, unusual filenames and permission errors — plus the
-parser cases from §14 and §15 and the `diff` classifications. It is POSIX sh
-with no dependencies, and skips rather than fails what the environment cannot
-provide.
+parser cases from §14 and §15, the `diff` classifications, and the `verify`
+findings. It is POSIX sh with no dependencies, and skips rather than fails what
+the environment cannot provide.
 
 `make valgrind` runs that same suite with every invocation under memcheck,
 which takes about 25 seconds against a fraction of a second for `make test`. It
@@ -98,9 +99,15 @@ $ fsnap diff old.fsnap new.fsnap
 A	/home/user/projects/example/new-file
 P	/home/user/projects/example/README.md
 D	/home/user/projects/example/old-file
+
+$ fsnap verify snapshot.fsnap ~/projects/example
+A	/home/user/projects/example/new-file
+M	/home/user/projects/example/README.md
+D	/home/user/projects/example/old-file
 ```
 
-The program exits with `0` on success and `1` on failure. `list` internally
+The program exits with `0` on success and `1` on failure. `verify` also exits
+`1` when it finds a difference, after reporting it on stdout. `list` internally
 returns `128` for a malformed record, but `main` maps it to exit status `1`.
 Diagnostics are written to stderr. A malformed snapshot has no distinct public
 exit status from another failure.
@@ -151,6 +158,29 @@ pathname:
 `snapshot:line: invalid <field_name>` or `snapshot:line: unparsable line`, and
 returns `128` internally; `main` maps it to exit status `1`.
 
+### `verify` output
+
+`verify` walks `<directory>` to find entries absent from the snapshot, then
+`lstat`s every stored path. Each finding is printed as `code<TAB>path`, with an
+extra reason for an access error. One line is printed per entry, in the first
+field that differs.
+
+| Code | Meaning |
+| --- | --- |
+| `A` | Present in the live tree but absent from the snapshot |
+| `D` | Present in the snapshot but absent from the live tree (`ENOENT`) |
+| `T` | File type changed |
+| `S` | Size changed |
+| `P` | Permission bits changed |
+| `O` | Owner or group changed |
+| `L` | Symlink target changed (checked before size and mtime, which change with it) |
+| `M` | Modification time changed |
+| `E` | The entry could not be inspected: the path, the reason, and `strerror` are printed. `EACCES`, `ENOTDIR`, `ELOOP` and `ENAMETOOLONG` stay distinct instead of collapsing into "missing" |
+
+`verify` exits `0` when the tree matches, `1` when it finds a difference, and
+`1` on a malformed or unreadable snapshot. A malformed snapshot is reported
+with the same `snapshot:line:` diagnostic as `list` and `diff`.
+
 ## Behaviour worth knowing
 
 - **Symlinks are not followed, anywhere.** Their metadata comes from `lstat()`,
@@ -184,6 +214,19 @@ returns `128` internally; `main` maps it to exit status `1`.
   empty directory, `list` accepts it silently with exit `0`, and `diff` treats
   it as carrying no records, so every entry on the other side is reported as
   added or deleted.
+- **`verify` compares paths, not contents.** The stored fingerprint is not
+  recomputed, so a regular file whose bytes changed while its size and mtime
+  stayed the same is not reported.
+- **`verify` uses the absolute paths stored in the snapshot.** It walks the
+  given directory to find new entries, but every stored record is checked at
+  its recorded path, so the tree must still be at the location it was scanned
+  from.
+- **`verify` ignores `.fsnap` files while looking for new entries**, for the
+  same reason `create` does: a snapshot living inside the tree is not part of
+  the tree's contents.
+- **Every recorded metadata field except the fingerprint is compared**,
+  including a directory's size and mtime. Adding or removing a child can
+  therefore report its parent as well as the child itself.
 
 ## Known limitations
 
@@ -224,7 +267,7 @@ Rough order of intent, no timeline:
 - [ ] Record inode, device ID, and link count so hard links can be identified.
 - [ ] Report a snapshot that grew between the counting pass and the parsing pass
       instead of silently ignoring the extra records.
-- [ ] `fsnap verify <snapshot> <directory>` — compare a snapshot against the live
+- [x] `fsnap verify <snapshot> <directory>` — compare a snapshot against the live
       filesystem, distinguishing `ENOENT`, `EACCES`, `ENOTDIR` and `ELOOP`
       rather than collapsing them ([SPEC.md](SPEC.md) §18).
 - [ ] Honour `TMPDIR` instead of hardcoding `/tmp`.

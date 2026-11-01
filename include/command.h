@@ -5,5 +5,6 @@
 #include "create.h"
 #include "list.h"
 #include "diff.h"
+#include "verify.h"
 
 #endif

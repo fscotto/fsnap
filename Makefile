@@ -39,7 +39,8 @@ SOURCES := \
 	src/scan.c \
 	src/create.c \
 	src/list.c \
-	src/diff.c
+	src/diff.c \
+	src/verify.c
 
 TESTS := tests/run.sh
 
