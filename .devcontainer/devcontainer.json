@@ -1,0 +1,69 @@
+{
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "containerEnv": {
+    "HOME": "/home/fscotto"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "esbenp.prettier-vscode",
+        "github.remotehub",
+        "ms-azuretools.vscode-containers",
+        "ms-vscode-remote.remote-containers",
+        "ms-vscode-remote.remote-ssh",
+        "ms-vscode-remote.remote-ssh-edit",
+        "ms-vscode-remote.remote-wsl",
+        "ms-vscode-remote.vscode-remote-extensionpack",
+        "ms-vscode.azure-repos",
+        "ms-vscode.cmake-tools",
+        "ms-vscode.cpptools",
+        "ms-vscode.remote-explorer",
+        "ms-vscode.remote-repositories",
+        "ms-vscode.remote-server",
+        "pkief.material-icon-theme",
+        "redhat.vscode-xml",
+        "redhat.vscode-yaml",
+        "saoudrizwan.claude-dev",
+        "vscodevim.vim"
+      ]
+    }
+  },
+  "mounts": [
+    {
+      "type": "bind",
+      "source": "${localEnv:HOME}/.gitconfig",
+      "target": "/run/host-gitconfig",
+      "readOnly": true
+    },
+    {
+      "type": "bind",
+      "source": "${localEnv:HOME}/.gitignore_global",
+      "target": "/home/fscotto/.gitignore_global",
+      "readOnly": true
+    },
+    {
+      "type": "bind",
+      "source": "${localEnv:HOME}/.config/ai",
+      "target": "/home/fscotto/.config/ai",
+      "readOnly": true
+    },
+    {
+      "type": "bind",
+      "source": "${localEnv:HOME}/.cline",
+      "target": "/home/fscotto/.cline",
+      "readOnly": false
+    },
+    {
+      "type": "bind",
+      "source": "${localEnv:HOME}/.agents",
+      "target": "/home/fscotto/.agents",
+      "readOnly": false
+    }
+  ],
+  "name": "fsnap — c-cpp",
+  "postCreateCommand": "sudo npm install --global --no-audit --no-fund 'cline'",
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": true
+}
